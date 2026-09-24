@@ -1,0 +1,19 @@
+# dependencies / build
+node_modules/
+dist/
+dist-server/
+
+# local data (SQLite is created + seeded at runtime)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# tooling / local config
+.agents/
+.claude/
+skills-lock.json
+design-system/
+
+# misc
+.DS_Store
+*.log
