@@ -36,8 +36,10 @@ database `data/bugbounty.db` is created and seeded with demo data on first launc
   Markdown research notes (autosave), and a program activity timeline.
 - **Assets & subdomains** — in-scope hosts as assets; each asset expands to hold **subdomains** with
   **bulk paste** and a one-click **live HTTP probe** (status, code, page title).
-- **Findings** — bound to an asset (or a specific subdomain). "New Finding" creates the finding + a
-  linked report and opens the editor.
+- **Pentest checklist** — a 76-point web-app testing checklist (16 parts, with how-to-test notes)
+  tracked **per scope target**, with per-scope and overall progress bars; state is saved per program.
+- **Findings** — bound to an asset (or a specific subdomain), fully editable (title, severity,
+  vuln class, CVSS/CWE, bounty, notes), with a one-click linked report.
 - **Report editor** — split-pane Markdown **write + live preview**, autosave, status/severity, and
   export to **Markdown / HTML** with automatic **secret redaction**.
 - **Analytics** — bounty & reports over time, severity breakdown, vulnerability classes, status

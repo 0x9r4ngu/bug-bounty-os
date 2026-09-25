@@ -63,9 +63,11 @@ CREATE TABLE IF NOT EXISTS reports (
   severity TEXT, cvss REAL, cwe TEXT, bounty REAL DEFAULT 0, is_favorite INTEGER DEFAULT 0,
   submission_platform TEXT, word_count INTEGER DEFAULT 0,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, submitted_at TEXT);
-CREATE TABLE IF NOT EXISTS journal (
-  id TEXT PRIMARY KEY, date TEXT NOT NULL, programs_worked TEXT, hours REAL DEFAULT 0,
-  tested TEXT, found TEXT, interesting TEXT, tomorrow TEXT, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS checklist_progress (
+  id TEXT PRIMARY KEY, program_id TEXT REFERENCES programs(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL, item_key TEXT NOT NULL, checked INTEGER DEFAULT 0, notes TEXT,
+  updated_at TEXT NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS i_check_uniq ON checklist_progress(program_id, scope, item_key);
 CREATE TABLE IF NOT EXISTS activity (
   id TEXT PRIMARY KEY, type TEXT, title TEXT NOT NULL, entity_type TEXT, entity_id TEXT, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS timeline (
@@ -553,6 +555,31 @@ def clone_report(h, m):
 @R("DELETE", "/api/reports/:id")
 def del_report(h, m):
     con = db(); con.execute("DELETE FROM reports WHERE id=?", (m["id"],)); con.commit(); con.close(); return {"ok": True}
+
+
+# checklist (per-program, per-scope pentest progress)
+@R("GET", "/api/programs/:id/checklist")
+def get_checklist(h, m):
+    con = db()
+    res = rows(con.execute("SELECT scope, item_key, checked, notes FROM checklist_progress WHERE program_id=?", (m["id"],)))
+    con.close(); return res
+
+
+@R("POST", "/api/programs/:id/checklist")
+def set_checklist(h, m):
+    b = h.body; require(b, "scope", "item_key"); con = db()
+    row = one(con.execute("SELECT id FROM checklist_progress WHERE program_id=? AND scope=? AND item_key=?",
+                          (m["id"], b["scope"], b["item_key"])))
+    checked = 1 if b.get("checked") else 0
+    if row:
+        sets, args = ["checked=?", "updated_at=?"], [checked, now()]
+        if "notes" in b: sets.append("notes=?"); args.append(b["notes"])
+        args.append(row["id"])
+        con.execute(f"UPDATE checklist_progress SET {','.join(sets)} WHERE id=?", args)
+    else:
+        con.execute("INSERT INTO checklist_progress (id,program_id,scope,item_key,checked,notes,updated_at) VALUES (?,?,?,?,?,?,?)",
+                    (nid(), m["id"], b["scope"], b["item_key"], checked, b.get("notes"), now()))
+    con.commit(); con.close(); return {"ok": True}
 
 
 # analytics

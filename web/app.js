@@ -400,12 +400,13 @@ async function viewProgram(id, query) {
   const p = d.program;
   const tab = query.tab || "overview";
   const setTab = (t) => go("#/programs/" + id + "?tab=" + t);
-  const tabs = [["overview", "Overview"], ["assets", "Assets (" + d.assets.length + ")"], ["findings", "Findings (" + d.findings.length + ")"], ["reports", "Reports (" + d.reports.length + ")"]];
+  const tabs = [["overview", "Overview"], ["assets", "Assets (" + d.assets.length + ")"], ["checklist", "Checklist"], ["findings", "Findings (" + d.findings.length + ")"], ["reports", "Reports (" + d.reports.length + ")"]];
   const body = h("div");
   const render = () => {
     body.innerHTML = "";
     if (tab === "overview") body.append(progOverview(d));
     else if (tab === "assets") body.append(progAssets(d, id));
+    else if (tab === "checklist") body.append(progChecklist(d, id));
     else if (tab === "findings") body.append(progFindings(d, id));
     else body.append(progReports(d, id));
   };
@@ -597,6 +598,75 @@ function progFindings(d, pid) {
 function progReports(d, pid) {
   const reload = () => go("#/programs/" + pid + "?tab=reports");
   return d.reports.length ? h("div", { class: "grid3" }, d.reports.map((r) => reportCard(r, reload))) : h("div", { class: "empty" }, "No reports.");
+}
+function progChecklist(d, pid) {
+  const T = window.CHECKLIST_TEMPLATE;
+  const root = h("div", { class: "stack", style: { gap: "14px" } });
+  if (!T || !T.parts) { root.append(h("div", { class: "empty" }, "Checklist template failed to load.")); return root; }
+  const scopes = d.assets.length ? d.assets.map((a) => ({ id: a.id, label: a.name, type: a.type })) : [{ id: "program", label: "Program-wide", type: "" }];
+  const total = T.totalItems;
+  const checked = new Set();
+  const openParts = {}; openParts[T.parts[0].id] = true;
+  const openItems = {};
+  let activeScope = scopes[0].id;
+  const isChecked = (sc, key) => checked.has(sc + ":" + key);
+  const scopeDone = (sc) => T.parts.reduce((a, p) => a + p.items.filter((i) => isChecked(sc, i.key)).length, 0);
+  const bar = (frac) => h("div", { style: { flex: "1", height: "8px", background: "var(--panel-2)", borderRadius: "999px", overflow: "hidden" } },
+    h("div", { style: { width: Math.round(frac * 100) + "%", height: "100%", background: "var(--accent)", borderRadius: "999px", transition: "width .2s" } }));
+  const toggle = async (key) => {
+    const next = !isChecked(activeScope, key);
+    if (next) checked.add(activeScope + ":" + key); else checked.delete(activeScope + ":" + key);
+    rebuild();
+    try { await POST("/programs/" + pid + "/checklist", { scope: activeScope, item_key: key, checked: next }); }
+    catch { toast("Save failed", "error"); if (next) checked.delete(activeScope + ":" + key); else checked.add(activeScope + ":" + key); rebuild(); }
+  };
+  function rebuild() {
+    root.innerHTML = "";
+    const overallDone = scopes.reduce((a, s) => a + scopeDone(s.id), 0);
+    const overallTotal = total * scopes.length;
+    root.append(h("div", { class: "card pad" },
+      h("div", { class: "spread", style: { marginBottom: "10px" } },
+        h("div", { class: "kicker row", style: { gap: "6px" } }, icon("list", 13), "Checklist progress"),
+        h("div", { class: "faint", style: { fontSize: "12px" } }, T.parts.length + " parts · " + total + " test areas per scope")),
+      h("div", { class: "row", style: { gap: "12px" } },
+        bar(overallTotal ? overallDone / overallTotal : 0),
+        h("span", { class: "tnum", style: { fontWeight: "600" } }, overallDone + "/" + overallTotal),
+        h("span", { class: "faint", style: { fontSize: "12px" } }, "(" + (overallTotal ? Math.round(overallDone / overallTotal * 100) : 0) + "%)"))));
+    if (!d.assets.length) root.append(h("div", { class: "card pad spread", style: { borderColor: "color-mix(in srgb, var(--warn) 30%, var(--border))" } },
+      h("span", { class: "muted", style: { fontSize: "13px" } }, "Add in-scope assets to get a dedicated checklist per scope target."),
+      h("a", { href: "#/programs/" + pid + "?tab=assets", class: "btn sm" }, icon("boxes", 13), "Add Assets")));
+    root.append(h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap" } }, scopes.map((s) =>
+      h("button", { class: "btn sm" + (s.id === activeScope ? " primary" : ""), onclick: () => { activeScope = s.id; rebuild(); } },
+        s.type ? badge(s.type, "--blue") : null, s.label, h("span", { style: { opacity: ".7", fontSize: "11px" } }, " " + scopeDone(s.id) + "/" + total)))));
+    const done = scopeDone(activeScope);
+    root.append(h("div", { class: "row", style: { gap: "12px" } }, bar(total ? done / total : 0), h("span", { class: "tnum faint", style: { fontSize: "12px" } }, done + "/" + total + " · " + Math.round((total ? done / total : 0) * 100) + "%")));
+    T.parts.forEach((p) => {
+      const partDone = p.items.filter((i) => isChecked(activeScope, i.key)).length;
+      const openP = !!openParts[p.id];
+      const chev = icon("chevR", 14); if (openP) chev.style.transform = "rotate(90deg)";
+      const card = h("div", { class: "card" },
+        h("button", { class: "row", style: { width: "100%", padding: "11px 14px", gap: "10px", textAlign: "left" }, onclick: () => { openParts[p.id] = !openP; rebuild(); } },
+          chev, h("span", { style: { fontWeight: "600", fontSize: "13px", flex: "1" } }, p.title),
+          h("span", { class: "faint tnum", style: { fontSize: "12px" } }, partDone + "/" + p.items.length)));
+      if (openP) p.items.forEach((it) => {
+        const on = isChecked(activeScope, it.key);
+        const openI = !!openItems[it.key];
+        const ichev = icon("chevD", 14); ichev.style.opacity = ".5"; if (openI) ichev.style.transform = "rotate(180deg)";
+        card.append(h("div", { style: { borderTop: "1px solid var(--border)" } },
+          h("div", { class: "row", style: { padding: "9px 14px", gap: "11px", alignItems: "flex-start" } },
+            h("button", { class: "check" + (on ? " on" : ""), title: on ? "Uncheck" : "Mark done", onclick: () => toggle(it.key) }, on ? icon("check", 12) : null),
+            h("div", { style: { flex: "1", minWidth: "0", cursor: "pointer" }, onclick: () => { openItems[it.key] = !openI; rebuild(); } },
+              h("div", { class: "row", style: { gap: "8px" } }, h("span", { class: "mono faint", style: { fontSize: "11px" } }, "#" + it.num),
+                h("span", { style: { fontSize: "13px", textDecoration: on ? "line-through" : "none", opacity: on ? ".55" : "1" } }, it.title)),
+              openI ? h("div", { class: "md", style: { marginTop: "8px", fontSize: "12.5px" }, html: mdToHtml(it.body) }) : null),
+            ichev)));
+      });
+      root.append(card);
+    });
+  }
+  root.append(h("div", { class: "empty" }, "Loading checklist…"));
+  GET("/programs/" + pid + "/checklist").then((r) => { (r || []).forEach((row) => { if (row.checked) checked.add(row.scope + ":" + row.item_key); }); rebuild(); }).catch(() => rebuild());
+  return root;
 }
 function programEditModal(p) {
   const f = Object.assign({}, p);

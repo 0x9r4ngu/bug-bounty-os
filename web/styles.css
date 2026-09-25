@@ -163,6 +163,9 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; line-height:
 .grid3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font-size: 11.5px; padding: 3px 8px; border-radius: 5px; background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }
+.check { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; border: 1.5px solid var(--border-2); border-radius: 5px; background: transparent; color: #fff; display: grid; place-items: center; transition: background .12s, border-color .12s; }
+.check:hover { border-color: var(--accent); }
+.check.on { background: var(--accent); border-color: var(--accent); }
 .pill-tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--r); }
 .pill-tabs button { height: 28px; padding: 0 12px; border-radius: var(--r-sm); border: none; background: transparent; color: var(--muted); font-size: 13px; font-weight: 500; }
 .pill-tabs button.active { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
