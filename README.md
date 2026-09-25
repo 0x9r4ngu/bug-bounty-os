@@ -42,9 +42,6 @@ database `data/bugbounty.db` is created and seeded with demo data on first launc
   export to **Markdown / HTML** with automatic **secret redaction**.
 - **Analytics** — bounty & reports over time, severity breakdown, vulnerability classes, status
   funnel, and bounty by program, with a program filter.
-- **Unfinished** — potential findings, unfinished reports, submissions awaiting response, unprobed
-  subdomains, and pending invitations — each links back to its source.
-- **Research journal** — a daily log of what you tested and found.
 - **Light + dark themes** (toggle in the header) and **⌘K global search**.
 
 ---

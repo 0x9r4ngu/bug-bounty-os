@@ -214,7 +214,7 @@ def probe_host(host):
         try:
             req = urllib.request.Request(f"{scheme}://{host}", headers={"User-Agent": "BugBountyOS-probe"},
                                          method="GET")
-            with urllib.request.urlopen(req, timeout=6, context=ctx) as r:
+            with urllib.request.urlopen(req, timeout=4, context=ctx) as r:
                 code = r.status
                 title = None
                 try:
@@ -249,6 +249,16 @@ class API:
 
 
 R = API.route
+
+
+class BadRequest(Exception):
+    """Raised for invalid client input; surfaced as HTTP 400."""
+
+
+def require(b, *keys):
+    missing = [k for k in keys if not b.get(k)]
+    if missing:
+        raise BadRequest("Missing required field: " + ", ".join(missing))
 
 
 def _report_body_from_finding(f, target):
@@ -295,6 +305,7 @@ def list_programs(h, m):
     con = db(); q = h.query
     sql = "SELECT * FROM programs WHERE 1=1"; args = []
     if q.get("private") == ["1"]: sql += " AND is_private=1"
+    if q.get("public") == ["1"]: sql += " AND is_private=0"
     if q.get("watched") == ["1"]: sql += " AND is_watched=1"
     sql += " ORDER BY updated_at DESC"
     res = rows(con.execute(sql, args))
@@ -366,7 +377,7 @@ def del_program(h, m):
 # assets
 @R("POST", "/api/assets")
 def create_asset(h, m):
-    b = h.body; con = db(); aid = nid()
+    b = h.body; require(b, "program_id", "name"); con = db(); aid = nid()
     con.execute("INSERT INTO assets (id,program_id,name,type,url,technology,created_at) VALUES (?,?,?,?,?,?,?)",
                 (aid, b["program_id"], b["name"], b.get("type", "Web"), b.get("url"), b.get("technology"), now()))
     con.commit(); con.close(); return {"id": aid}
@@ -459,7 +470,7 @@ def get_finding(h, m):
 
 @R("POST", "/api/findings")
 def create_finding(h, m):
-    b = h.body; con = db(); fid = nid()
+    b = h.body; require(b, "program_id", "title"); con = db(); fid = nid()
     con.execute("""INSERT INTO findings (id,program_id,asset_id,subdomain_id,title,vuln_class,severity,status,cvss,cwe,
         bounty,observation,discovered_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (fid, b["program_id"], b.get("asset_id"), b.get("subdomain_id"), b["title"], b.get("vuln_class"),
@@ -544,36 +555,6 @@ def del_report(h, m):
     con = db(); con.execute("DELETE FROM reports WHERE id=?", (m["id"],)); con.commit(); con.close(); return {"ok": True}
 
 
-# journal
-@R("GET", "/api/journal")
-def list_journal(h, m):
-    con = db(); res = rows(con.execute("SELECT * FROM journal ORDER BY date DESC")); con.close(); return res
-
-
-@R("POST", "/api/journal")
-def create_journal(h, m):
-    b = h.body; con = db(); jid = nid()
-    con.execute("""INSERT INTO journal (id,date,programs_worked,hours,tested,found,interesting,tomorrow,created_at)
-        VALUES (?,?,?,?,?,?,?,?,?)""", (jid, b.get("date"), b.get("programs_worked"), b.get("hours", 0),
-        b.get("tested"), b.get("found"), b.get("interesting"), b.get("tomorrow"), now()))
-    con.commit(); con.close(); return {"id": jid}
-
-
-@R("PATCH", "/api/journal/:id")
-def patch_journal(h, m):
-    b = h.body; con = db(); sets, args = [], []
-    for c in ["date", "programs_worked", "hours", "tested", "found", "interesting", "tomorrow"]:
-        if c in b: sets.append(f"{c}=?"); args.append(b[c])
-    if sets:
-        args.append(m["id"]); con.execute(f"UPDATE journal SET {','.join(sets)} WHERE id=?", args); con.commit()
-    con.close(); return {"ok": True}
-
-
-@R("DELETE", "/api/journal/:id")
-def del_journal(h, m):
-    con = db(); con.execute("DELETE FROM journal WHERE id=?", (m["id"],)); con.commit(); con.close(); return {"ok": True}
-
-
 # analytics
 @R("GET", "/api/analytics")
 def analytics(h, m):
@@ -596,19 +577,6 @@ def analytics(h, m):
     con.close()
     return {"bounty": bounty, "by_severity": by_sev, "by_class": by_class, "reports_time": reports_time,
             "by_program": by_program, "funnel": funnel}
-
-
-@R("GET", "/api/unfinished")
-def unfinished(h, m):
-    con = db()
-    out = {
-        "potential": rows(con.execute("SELECT f.*, p.name program_name FROM findings f JOIN programs p ON p.id=f.program_id WHERE f.status='Potential' ORDER BY f.created_at DESC")),
-        "drafts": rows(con.execute("SELECT r.*, p.name program_name FROM reports r LEFT JOIN programs p ON p.id=r.program_id WHERE r.status IN ('Draft','In Progress') ORDER BY r.updated_at DESC")),
-        "awaiting": rows(con.execute("SELECT r.*, p.name program_name FROM reports r LEFT JOIN programs p ON p.id=r.program_id WHERE r.status='Submitted' ORDER BY r.submitted_at")),
-        "invitations": rows(con.execute("SELECT * FROM programs WHERE invitation_status IN ('Pending','Received') ORDER BY invitation_date DESC")),
-        "unprobed": rows(con.execute("SELECT s.*, p.name program_name FROM subdomains s JOIN programs p ON p.id=s.program_id WHERE s.status='Unknown' ORDER BY s.host LIMIT 40")),
-    }
-    con.close(); return out
 
 
 @R("GET", "/api/search")
@@ -667,6 +635,8 @@ class Handler(BaseHTTPRequestHandler):
                         result = fn(self, mo.groupdict())
                         code = 404 if isinstance(result, dict) and result.get("error") == "not found" else 200
                         return self._json(result, code)
+                    except BadRequest as e:
+                        return self._json({"error": str(e)}, 400)
                     except Exception as e:
                         import traceback; traceback.print_exc()
                         return self._json({"error": str(e)}, 500)

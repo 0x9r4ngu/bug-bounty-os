@@ -22,7 +22,7 @@
   --bg: #f7f7f8; --bg-grid: rgba(0,0,0,.012);
   --panel: #ffffff; --panel-2: #f4f4f6; --panel-3: #ececf0;
   --border: rgba(20,20,30,.1); --border-2: rgba(20,20,30,.2);
-  --text: #17171b; --muted: #5c5c67; --faint: #9a9aa4;
+  --text: #17171b; --muted: #5c5c67; --faint: #6b6b75;
   --accent-soft: rgba(124,102,255,.1);
   --shadow: 0 1px 2px rgba(30,30,50,.06), 0 8px 24px -14px rgba(30,30,50,.14);
 }
@@ -31,7 +31,7 @@
     --bg: #f7f7f8; --bg-grid: rgba(0,0,0,.012);
     --panel: #ffffff; --panel-2: #f4f4f6; --panel-3: #ececf0;
     --border: rgba(20,20,30,.1); --border-2: rgba(20,20,30,.2);
-    --text: #17171b; --muted: #5c5c67; --faint: #9a9aa4; --accent-soft: rgba(124,102,255,.1);
+    --text: #17171b; --muted: #5c5c67; --faint: #6b6b75; --accent-soft: rgba(124,102,255,.1);
     --shadow: 0 1px 2px rgba(30,30,50,.06), 0 8px 24px -14px rgba(30,30,50,.14);
   }
 }
@@ -43,7 +43,7 @@ body {
   -webkit-font-smoothing: antialiased; letter-spacing: -0.01em;
 }
 a { color: inherit; text-decoration: none; }
-button { font: inherit; cursor: pointer; }
+button { font: inherit; cursor: pointer; background: none; border: none; color: inherit; }
 .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
 ::selection { background: var(--accent-soft); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -159,7 +159,7 @@ textarea.input { height: auto; padding: 9px 11px; resize: vertical; line-height:
 .row { display: flex; align-items: center; gap: 10px; }
 .spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .stack { display: flex; flex-direction: column; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .grid3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font-size: 11.5px; padding: 3px 8px; border-radius: 5px; background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }

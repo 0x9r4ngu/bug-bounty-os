@@ -69,7 +69,7 @@ function ago(iso) {
   if (d < 86400) return Math.floor(d / 3600) + "h ago"; return Math.floor(d / 86400) + "d ago";
 }
 const SEV = { Critical: "--crit", High: "--high", Medium: "--med", Low: "--low", Informational: "--info" };
-const STA = { Potential: "--info", Confirmed: "--blue", Submitted: "--violet", Triaged: "--warn", Accepted: "--ok", Resolved: "--ok", Draft: "--info", "In Progress": "--blue", Ready: "--warn", Rejected: "--crit", Duplicate: "--info", Archived: "--faint" };
+const STA = { Potential: "--info", Confirmed: "--blue", Submitted: "--violet", Triaged: "--warn", Accepted: "--ok", Resolved: "--ok", Draft: "--info", "In Progress": "--blue", Ready: "--warn", Rejected: "--crit", Duplicate: "--info", Archived: "--faint", Active: "--ok", Paused: "--warn", Closed: "--faint", Expired: "--faint" };
 const VIS = { PUBLIC: "--blue", PRIVATE: "--warn", INVITE_ONLY: "--violet", VDP: "--info", INTERNAL: "--crit", CUSTOM: "--info" };
 const SUBC = { Live: "--ok", Redirect: "--warn", Offline: "--crit", Unknown: "--faint", "Out of Scope": "--faint" };
 const sevVar = (s) => "var(" + (SEV[s] || "--info") + ")";
@@ -204,7 +204,7 @@ function lineMulti(months, series) {
 /* ── shell ── */
 const NAV = [
   ["", "home", "Overview"], ["programs", "shield", "Programs"], ["findings", "bug", "Findings"],
-  ["reports", "file", "Reports"], ["analytics", "chart", "Analytics"], ["unfinished", "list", "Unfinished"], ["journal", "book", "Journal"],
+  ["reports", "file", "Reports"], ["analytics", "chart", "Analytics"],
 ];
 let collapsed = false;
 function toggleTheme() {
@@ -236,8 +236,7 @@ function buildShell() {
       h("button", { class: "searchbar", onclick: openSearch },
         icon("search", 15), h("span", {}, "Search…"), h("kbd", {}, "⌘K")),
       h("div", { style: { marginLeft: "auto" }, class: "row" },
-        h("button", { class: "icon-btn", title: "Toggle theme", onclick: toggleTheme }, themeIcon()),
-        h("a", { href: "#/programs?new=1", class: "btn primary" }, icon("plus", 15), "New Program"))),
+        h("button", { class: "icon-btn", title: "Toggle theme", onclick: toggleTheme }, themeIcon()))),
     view);
   app.append(h("div", { class: "app" }, side, main));
 }
@@ -250,7 +249,7 @@ function parseHash() {
 }
 const ROUTES = {
   "": viewOverview, "programs": viewPrograms, "findings": viewFindings, "reports": viewReports,
-  "analytics": viewAnalytics, "unfinished": viewUnfinished, "journal": viewJournal,
+  "analytics": viewAnalytics,
 };
 async function navigate() {
   const { path, query } = parseHash();
@@ -318,8 +317,8 @@ async function viewOverview() {
 }
 
 async function viewPrograms(_, query) {
-  const priv = query.private === "1", watch = query.watched === "1";
-  const list = await GET("/programs?" + new URLSearchParams(priv ? { private: "1" } : watch ? { watched: "1" } : {}));
+  const priv = query.private === "1", pub = query.public === "1";
+  const list = await GET("/programs?" + new URLSearchParams(priv ? { private: "1" } : pub ? { public: "1" } : {}));
   if (query.new === "1") setTimeout(programModal, 30);
   const filt = (label, active, to) => h("button", { class: active ? "active" : "", onclick: () => go(to) }, label);
   return page(
@@ -327,7 +326,7 @@ async function viewPrograms(_, query) {
       h("div", {}, h("div", { class: "h1" }, "Programs"), h("div", { class: "sub" }, list.length + " tracked")),
       h("button", { class: "btn primary", onclick: programModal }, icon("plus", 15), "New Program")),
     h("div", { class: "pill-tabs", style: { marginBottom: "18px" } },
-      filt("All", !priv && !watch, "#/programs"), filt("Private", priv, "#/programs?private=1"), filt("Watched", watch, "#/programs?watched=1")),
+      filt("All", !priv && !pub, "#/programs"), filt("Private", priv, "#/programs?private=1"), filt("Public", pub, "#/programs?public=1")),
     list.length ? h("div", { class: "grid3" }, list.map((p) => programCard(p))) : h("div", { class: "empty" }, "No programs."));
 }
 function programCard(p) {
@@ -370,7 +369,6 @@ function programModal() {
   openModal(m);
 }
 
-/* program detail + tabs live in app2.js section below */
 window.__bbos = { page, GET, POST, PATCH, DEL, h, icon, badge, sevBadge, staBadge, money, ago, field, input, textarea, select, toast, confirmDialog, openModal, closeModal, go, mdToHtml, donut, hbars, lineMulti, sevVar, SEV, STA, VIS, SUBC };
 
 /* ── search palette ── */
@@ -409,7 +407,7 @@ async function viewProgram(id, query) {
     if (tab === "overview") body.append(progOverview(d));
     else if (tab === "assets") body.append(progAssets(d, id));
     else if (tab === "findings") body.append(progFindings(d, id));
-    else body.append(progReports(d));
+    else body.append(progReports(d, id));
   };
   render();
   return page(
@@ -503,7 +501,7 @@ function subRow(s, reload) {
     s.title ? h("span", { class: "faint", style: { fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: "1" } }, s.title) : h("span", { style: { flex: "1" } }),
     h("span", { style: { fontSize: "11px", color: "var(" + (SUBC[s.status] || "--faint") + ")" } }, s.status),
     h("a", { href: "https://" + s.host, target: "_blank", class: "icon-btn", style: { width: "22px", height: "22px" } }, icon("ext", 12)),
-    h("button", { class: "icon-btn", style: { width: "22px", height: "22px" }, onclick: async () => { await DEL("/subdomains/" + s.id); reload(); } }, icon("trash", 12)));
+    h("button", { class: "icon-btn", style: { width: "22px", height: "22px" }, onclick: async () => { if (await confirmDialog("Delete subdomain “" + s.host + "”?")) { await DEL("/subdomains/" + s.id); reload(); } } }, icon("trash", 12)));
 }
 function assetModal(pid, reload, existing) {
   const f = existing ? { host: existing.url || existing.name, type: existing.type, technology: existing.technology || "" } : { hosts: "", type: "Auto", technology: "" };
@@ -525,41 +523,80 @@ function assetModal(pid, reload, existing) {
         closeModal(); toast("Saved", "ok"); reload();
       } }, "Save"))));
 }
+async function openReportFor(f, pid, target) {
+  const det = await GET("/findings/" + f.id);
+  if (det.report) return go("#/reports/" + det.report.id);
+  const { id } = await POST("/reports", { title: f.title, program_id: pid || f.program_id, finding_id: f.id, severity: f.severity, body: window.__bbos.reportTemplate(f.title, f.severity, target || "`[asset]`"), folder: "Drafts" });
+  go("#/reports/" + id);
+}
+function findingEditModal(f, reload) {
+  const g = { title: f.title || "", severity: f.severity || "Medium", status: f.status || "Potential", vuln_class: f.vuln_class || "", cvss: f.cvss || "", cwe: f.cwe || "", bounty: f.bounty || 0, observation: f.observation || "" };
+  openModal(h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
+    h("div", { class: "modal-head" }, h("div", { style: { fontWeight: "600" } }, "Edit Finding"), h("button", { class: "icon-btn", onclick: closeModal }, icon("x"))),
+    h("div", { class: "modal-body" },
+      field("Title", input({ value: g.title, oninput: (e) => (g.title = e.target.value), placeholder: "IDOR on /api/orders/:id" })),
+      h("div", { class: "grid2" },
+        field("Severity", select(["Critical", "High", "Medium", "Low", "Informational"], g.severity, { onchange: (e) => (g.severity = e.target.value) })),
+        field("Status", select(["Potential", "Confirmed", "Submitted", "Triaged", "Accepted", "Resolved", "Duplicate", "Rejected"], g.status, { onchange: (e) => (g.status = e.target.value) }))),
+      h("div", { class: "grid2" },
+        field("Vulnerability class", input({ value: g.vuln_class, oninput: (e) => (g.vuln_class = e.target.value), placeholder: "IDOR / SSRF / XSS…" })),
+        field("Bounty (USD)", input({ type: "number", min: "0", value: g.bounty, oninput: (e) => (g.bounty = e.target.value) }))),
+      h("div", { class: "grid2" },
+        field("CVSS", input({ value: g.cvss, oninput: (e) => (g.cvss = e.target.value), placeholder: "7.5" })),
+        field("CWE", input({ value: g.cwe, oninput: (e) => (g.cwe = e.target.value), placeholder: "CWE-639" }))),
+      field("Observation / notes", textarea({ rows: 4, value: g.observation, oninput: (e) => (g.observation = e.target.value), placeholder: "What you saw, where, and why it matters." }))),
+    h("div", { class: "modal-foot" },
+      h("button", { class: "btn", onclick: closeModal }, "Cancel"),
+      h("button", { class: "btn primary", onclick: async () => {
+        if (!g.title.trim()) return toast("Title required", "error");
+        await PATCH("/findings/" + f.id, { title: g.title.trim(), severity: g.severity, status: g.status, vuln_class: g.vuln_class || null, cvss: g.cvss || null, cwe: g.cwe || null, bounty: Number(g.bounty) || 0, observation: g.observation || null });
+        closeModal(); toast("Saved", "ok"); reload();
+      } }, "Save"))));
+}
+function newFindingModal(d, pid, reload) {
+  if (!d.assets.length) return confirmDialog({ title: "Add an asset first", message: "Findings bind to an asset. Add at least one asset before creating a finding.", confirm: "Go to Assets", danger: false }).then((ok) => ok && go("#/programs/" + pid + "?tab=assets"));
+  const targets = [];
+  d.assets.forEach((a) => { targets.push(["a:" + a.id, a.name]); d.subdomains.filter((s) => s.asset_id === a.id).forEach((s) => targets.push(["s:" + s.id, "  ↳ " + s.host])); });
+  const g = { title: "", severity: "Medium", vuln_class: "", target: targets[0][0] };
+  openModal(h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
+    h("div", { class: "modal-head" }, h("div", { style: { fontWeight: "600" } }, "New Finding"), h("button", { class: "icon-btn", onclick: closeModal }, icon("x"))),
+    h("div", { class: "modal-body" },
+      field("Title", input({ oninput: (e) => (g.title = e.target.value), placeholder: "IDOR on /api/orders/:id", autofocus: true })),
+      field("Asset / subdomain", select(targets, g.target, { onchange: (e) => (g.target = e.target.value) })),
+      h("div", { class: "grid2" },
+        field("Severity", select(["Critical", "High", "Medium", "Low", "Informational"], "Medium", { onchange: (e) => (g.severity = e.target.value) })),
+        field("Vulnerability class", input({ oninput: (e) => (g.vuln_class = e.target.value), placeholder: "IDOR" })))),
+    h("div", { class: "modal-foot" },
+      h("button", { class: "btn", onclick: closeModal }, "Cancel"),
+      h("button", { class: "btn primary", onclick: async () => {
+        if (!g.title.trim()) return toast("Title required", "error");
+        const [kind, tid] = g.target.split(":");
+        const aid = kind === "a" ? tid : (d.subdomains.find((s) => s.id === tid) || {}).asset_id;
+        await POST("/findings", { program_id: pid, title: g.title.trim(), severity: g.severity, status: "Potential", vuln_class: g.vuln_class || null, asset_id: aid || null, subdomain_id: kind === "s" ? tid : null });
+        closeModal(); toast("Finding added", "ok"); reload();
+      } }, "Create"))));
+}
 function progFindings(d, pid) {
   const reload = () => go("#/programs/" + pid + "?tab=findings");
-  const newFinding = async (asset, sub) => {
-    const target = sub ? sub.host : (asset ? asset.name : "`[asset]`");
-    const { id: fid } = await POST("/findings", { program_id: pid, title: "Untitled finding", severity: "Medium", status: "Potential", asset_id: asset ? asset.id : null, subdomain_id: sub ? sub.id : null });
-    const rbody = window.__bbos.reportTemplate("Untitled finding", "Medium", target);
-    const { id: rid } = await POST("/reports", { title: "Untitled finding", program_id: pid, finding_id: fid, severity: "Medium", body: rbody, folder: "Drafts" });
-    go("#/reports/" + rid);
-  };
-  const onNew = () => {
-    if (!d.assets.length) return confirmDialog({ title: "Add an asset first", message: "Findings bind to an asset. Add at least one asset before creating a finding.", confirm: "Go to Assets", danger: false }).then((ok) => ok && go("#/programs/" + pid + "?tab=assets"));
-    const menu = h("div", { class: "modal", style: { maxWidth: "320px" }, onclick: (e) => e.stopPropagation() },
-      h("div", { class: "modal-head" }, h("div", { style: { fontWeight: "600" } }, "Bind finding to…"), h("button", { class: "icon-btn", onclick: closeModal }, icon("x"))),
-      h("div", { class: "modal-body", style: { padding: "6px" } }, d.assets.map((a) => h("div", {},
-        h("div", { class: "cmdk-item", onclick: () => { closeModal(); newFinding(a); } }, badge(a.type, "--blue"), h("span", { class: "mono" }, a.name)),
-        d.subdomains.filter((s) => s.asset_id === a.id).map((s) => h("div", { class: "cmdk-item", style: { paddingLeft: "26px" }, onclick: () => { closeModal(); newFinding(a, s); } }, h("span", { class: "dot", style: { background: "var(" + (SUBC[s.status] || "--faint") + ")" } }), h("span", { class: "mono", style: { fontSize: "12px" } }, s.host)))))));
-    openModal(menu, true);
-  };
   const rows = d.findings.map((f) => {
     const asset = d.assets.find((a) => a.id === f.asset_id);
     const target = f.subdomain_host || (asset && asset.name);
-    const openRep = async () => { const det = await GET("/findings/" + f.id); if (det.report) go("#/reports/" + det.report.id); else { const { id } = await POST("/reports", { title: f.title, program_id: pid, finding_id: f.id, severity: f.severity, body: window.__bbos.reportTemplate(f.title, f.severity, target || "`[asset]`"), folder: "Drafts" }); go("#/reports/" + id); } };
     return h("div", { class: "card row", style: { padding: "11px 14px", gap: "12px" } },
       sevBadge(f.severity),
-      h("div", { class: "row", style: { flex: "1", minWidth: "0", cursor: "pointer", gap: "8px" }, onclick: openRep }, h("span", { style: { fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, f.title), target ? h("span", { class: "faint mono", style: { fontSize: "11px" } }, target) : null),
+      h("div", { class: "row", style: { flex: "1", minWidth: "0", cursor: "pointer", gap: "8px" }, title: "Edit finding", onclick: () => findingEditModal(f, reload) }, h("span", { style: { fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, f.title), target ? h("span", { class: "faint mono", style: { fontSize: "11px" } }, target) : null),
+      f.bounty > 0 ? h("span", { style: { color: "var(--ok)", fontWeight: "600", fontSize: "13px" } }, money(f.bounty)) : null,
       select(["Potential", "Confirmed", "Submitted", "Triaged", "Accepted", "Resolved", "Duplicate", "Rejected"], f.status, { style: { width: "140px" }, onchange: (e) => PATCH("/findings/" + f.id, { status: e.target.value }) }),
-      h("button", { class: "icon-btn", title: "Open report", onclick: openRep }, icon("edit", 15)),
-      h("button", { class: "icon-btn", onclick: async () => { if (await confirmDialog("Delete finding “" + f.title + "”?")) { await DEL("/findings/" + f.id); reload(); } } }, icon("trash", 15)));
+      h("button", { class: "icon-btn", title: "Edit finding", onclick: () => findingEditModal(f, reload) }, icon("edit", 15)),
+      h("button", { class: "icon-btn", title: "Open report", onclick: () => openReportFor(f, pid, target) }, icon("file", 15)),
+      h("button", { class: "icon-btn", title: "Delete finding", onclick: async () => { if (await confirmDialog("Delete finding “" + f.title + "”?")) { await DEL("/findings/" + f.id); reload(); } } }, icon("trash", 15)));
   });
   return h("div", { class: "stack", style: { gap: "10px" } },
-    h("div", { class: "spread", style: { marginBottom: "6px" } }, h("div", { class: "muted", style: { fontSize: "13px" } }, d.findings.length + " findings"), h("button", { class: "btn primary sm", onclick: onNew }, icon("plus", 14), "New Finding")),
-    d.findings.length ? rows : [h("div", { class: "empty" }, "No findings yet. New Finding binds to an asset and opens the editor.")]);
+    h("div", { class: "spread", style: { marginBottom: "6px" } }, h("div", { class: "muted", style: { fontSize: "13px" } }, d.findings.length + " findings"), h("button", { class: "btn primary sm", onclick: () => newFindingModal(d, pid, reload) }, icon("plus", 14), "New Finding")),
+    d.findings.length ? rows : [h("div", { class: "empty" }, "No findings yet. New Finding binds to an asset — set its title, severity and bounty inline.")]);
 }
-function progReports(d) {
-  return d.reports.length ? h("div", { class: "grid3" }, d.reports.map((r) => reportCard(r, () => {}))) : h("div", { class: "empty" }, "No reports.");
+function progReports(d, pid) {
+  const reload = () => go("#/programs/" + pid + "?tab=reports");
+  return d.reports.length ? h("div", { class: "grid3" }, d.reports.map((r) => reportCard(r, reload))) : h("div", { class: "empty" }, "No reports.");
 }
 function programEditModal(p) {
   const f = Object.assign({}, p);
@@ -596,14 +633,16 @@ async function viewFindings(_, query) {
       select([["", "All statuses"], "Potential", "Confirmed", "Submitted", "Triaged", "Accepted", "Resolved", "Duplicate", "Rejected"], query.status || "", { style: { width: "160px" }, onchange: (e) => setF("status", e.target.value) })),
     list.length ? h("div", { class: "card" }, h("table", { class: "table" },
       h("thead", {}, h("tr", {}, ["Severity", "Title", "Class", "Program", "Status", "Bounty", ""].map((t) => h("th", {}, t)))),
-      h("tbody", {}, list.map((f) => h("tr", { class: "clickable", onclick: () => go("#/programs/" + f.program_id + "?tab=findings") },
+      h("tbody", {}, list.map((f) => h("tr", { class: "clickable", title: "Edit finding", onclick: () => findingEditModal(f, navigate) },
         h("td", {}, sevBadge(f.severity)),
         h("td", { style: { fontWeight: "500" } }, f.title),
         h("td", { class: "muted" }, f.vuln_class || "—"),
         h("td", { class: "muted" }, f.is_private ? [icon("lock", 11), " "] : null, f.program_name),
         h("td", {}, staBadge(f.status)),
         h("td", { style: { textAlign: "right" } }, f.bounty > 0 ? h("span", { style: { color: "var(--ok)", fontWeight: "600" } }, money(f.bounty)) : h("span", { class: "faint" }, "—")),
-        h("td", { style: { textAlign: "right", width: "1%" } }, h("button", { class: "icon-btn", onclick: async (e) => { e.stopPropagation(); if (await confirmDialog("Delete finding “" + f.title + "”?")) { await DEL("/findings/" + f.id); navigate(); } } }, icon("trash", 15)))))))) : h("div", { class: "empty" }, "No findings match."));
+        h("td", { style: { textAlign: "right", width: "1%", whiteSpace: "nowrap" } },
+          h("button", { class: "icon-btn", title: "Open report", onclick: (e) => { e.stopPropagation(); openReportFor(f, f.program_id, f.subdomain_host || f.asset_name); } }, icon("file", 15)),
+          h("button", { class: "icon-btn", title: "Delete finding", onclick: async (e) => { e.stopPropagation(); if (await confirmDialog("Delete finding “" + f.title + "”?")) { await DEL("/findings/" + f.id); navigate(); } } }, icon("trash", 15)))))))) : h("div", { class: "empty" }, "No findings match."));
 }
 
 /* ═══ REPORTS ═══ */
@@ -612,8 +651,7 @@ async function viewReports(_, query) {
   const qs = new URLSearchParams(); if (folder !== "All" && folder !== "Favorites") qs.set("folder", folder);
   if (folder === "Favorites") qs.set("favorite", "1"); if (query.status) qs.set("status", query.status);
   const list = await GET("/reports?" + qs);
-  const programs = await GET("/programs");
-  const newReport = async () => { const { id } = await POST("/reports", { title: "Untitled Report", body: "# Untitled Report\n\n## Summary\n\n", program_id: programs[0] && programs[0].id }); go("#/reports/" + id); };
+  const newReport = async () => { const { id } = await POST("/reports", { title: "Untitled Report", body: "# Untitled Report\n\n## Summary\n\n" }); go("#/reports/" + id); };
   const FOLDERS = ["All", "Drafts", "Submitted", "Accepted", "Resolved", "Archived", "Favorites"];
   return page(
     h("div", { class: "page-head" }, h("div", {}, h("div", { class: "h1" }, "Reports"), h("div", { class: "sub" }, list.length + " reports")), h("button", { class: "btn primary", onclick: newReport }, icon("plus", 15), "New Report")),
@@ -644,6 +682,7 @@ window.__bbos.reportTemplate = function (title, sev, target) {
 async function viewReportEditor(id) {
   const { report: r } = await GET("/reports/" + id);
   if (!r) return h("div", { class: "page" }, h("div", { class: "empty" }, "Report not found."));
+  const programs = await GET("/programs");
   const st = h("span", { class: "save-state" }, icon("check", 12), "Saved");
   let content = r.body || "", title = r.title || "";
   const preview = h("div", { class: "md" });
@@ -669,7 +708,9 @@ async function viewReportEditor(id) {
       select(["Draft", "In Progress", "Ready", "Submitted", "Accepted", "Resolved", "Rejected", "Archived"], r.status, { style: { width: "130px" }, onchange: (e) => PATCH("/reports/" + id, { status: e.target.value }) }),
       h("span", { class: "faint", style: { fontSize: "12px" } }, "Severity"),
       select(["Critical", "High", "Medium", "Low", "Informational"], r.severity || "Medium", { style: { width: "120px" }, onchange: (e) => PATCH("/reports/" + id, { severity: e.target.value }) }),
-      h("div", { style: { marginLeft: "auto" }, class: "row", style2: null },
+      h("span", { class: "faint", style: { fontSize: "12px" } }, "Program"),
+      select([["", "No program"], ...programs.map((p) => [p.id, p.name])], r.program_id || "", { style: { width: "150px" }, onchange: (e) => PATCH("/reports/" + id, { program_id: e.target.value || null }) }),
+      h("div", { style: { marginLeft: "auto" }, class: "row" },
         h("button", { class: "btn danger sm", onclick: async () => { if (await confirmDialog("Delete report “" + title + "”?")) { await DEL("/reports/" + id); go("#/reports"); } } }, icon("trash", 14), "Delete"),
         h("button", { class: "btn sm", onclick: () => exportAs("md") }, icon("download", 14), "MD"),
         h("button", { class: "btn primary sm", onclick: () => exportAs("html") }, icon("download", 14), "HTML"))),
@@ -691,7 +732,9 @@ async function viewAnalytics(_, query) {
       h("div", {}, h("div", { class: "h1" }, "Analytics"), h("div", { class: "sub" }, "Descriptive — no rankings, just your data.")),
       select([["", "All programs"], ...programs.map((p) => [p.id, p.name])], query.program_id || "", { style: { width: "200px" }, onchange: (e) => go("#/analytics" + (e.target.value ? "?program_id=" + e.target.value : "")) })),
     h("div", { class: "grid2" },
-      chartCard("Bounty over time", a.bounty.length ? sparkline(a.bounty.map((b) => b.bounty), "var(--ok)") : h("div", { class: "empty" }, "No data")),
+      chartCard("Bounty over time", a.bounty.length ? h("div", {},
+        lineMulti(a.bounty.map((b) => b.month), [{ name: "Bounty", color: "var(--ok)", data: a.bounty.map((b) => b.bounty) }]),
+        h("div", { class: "row", style: { marginTop: "10px", gap: "16px", flexWrap: "wrap" } }, a.bounty.map((b) => h("div", {}, h("div", { class: "faint", style: { fontSize: "11px" } }, b.month), h("div", { style: { fontWeight: "600", color: "var(--ok)" } }, money(b.bounty)))))) : h("div", { class: "empty" }, "No data")),
       chartCard("Reports over time", months.length ? h("div", {}, lineMulti(months, statuses.map((s, i) => ({ name: s, color: "var(" + PAL[i % PAL.length] + ")", data: months.map((m) => { const r = a.reports_time.find((x) => x.month === m && x.status === s); return r ? r.c : 0; }) }))),
         h("div", { class: "chips", style: { marginTop: "10px" } }, statuses.map((s, i) => h("span", { class: "row", style: { gap: "5px", fontSize: "11.5px" } }, h("span", { class: "dot", style: { background: "var(" + PAL[i % PAL.length] + ")" } }), s)))) : h("div", { class: "empty" }, "No data"))),
     h("div", { class: "grid2", style: { marginTop: "16px" } },
@@ -701,51 +744,6 @@ async function viewAnalytics(_, query) {
     h("div", { class: "grid2", style: { marginTop: "16px" } },
       chartCard("Status funnel", hbars(a.funnel, "var(--violet)")),
       chartCard("Bounty by program", h("table", { class: "table" }, h("tbody", {}, a.by_program.map((p) => h("tr", {}, h("td", { style: { fontWeight: "500" } }, p.name), h("td", { class: "tnum muted", style: { textAlign: "right" } }, p.findings + " findings"), h("td", { class: "tnum", style: { textAlign: "right", color: "var(--ok)", fontWeight: "600" } }, money(p.total)))))))));
-}
-
-/* ═══ UNFINISHED ═══ */
-async function viewUnfinished() {
-  const d = await GET("/unfinished");
-  const total = d.potential.length + d.drafts.length + d.awaiting.length + d.invitations.length + d.unprobed.length;
-  const group = (title, ic, items, render) => h("div", { class: "card" },
-    h("div", { class: "card-head" }, h("div", { class: "row card-title", style: { gap: "6px" } }, icon(ic, 14), title), h("span", { style: { fontSize: "11px", fontWeight: "700", padding: "1px 7px", borderRadius: "10px", background: "var(--accent-soft)", color: "var(--accent)" } }, items.length)),
-    h("div", { class: "pad stack", style: { gap: "6px" } }, items.length ? items.map(render) : h("div", { class: "empty" }, "Nothing pending.")));
-  const row = (to, ...kids) => h("a", { href: to, class: "row hover-card", style: { padding: "9px 11px", border: "1px solid var(--border)", borderRadius: "7px" } }, kids.flat(Infinity));
-  return page(
-    h("div", { class: "page-head" }, h("div", {}, h("div", { class: "h1" }, "Unfinished"), h("div", { class: "sub" }, total + " open items — every row links to its source."))),
-    h("div", { class: "grid2" },
-      group("Potential findings", "bug", d.potential, (f) => row("#/programs/" + f.program_id + "?tab=findings", sevBadge(f.severity), h("span", { style: { flex: "1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, f.title), h("span", { class: "faint", style: { fontSize: "11px" } }, f.program_name))),
-      group("Unfinished reports", "file", d.drafts, (r) => row("#/reports/" + r.id, staBadge(r.status), h("span", { style: { flex: "1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.title))),
-      group("Awaiting response", "clock", d.awaiting, (r) => row("#/reports/" + r.id, h("span", { style: { flex: "1" } }, r.title), h("span", { class: "faint", style: { fontSize: "11px" } }, r.submitted_at ? "submitted " + ago(r.submitted_at) : ""))),
-      group("Unprobed subdomains", "radio", d.unprobed, (s) => row("#/programs/" + s.program_id + "?tab=assets", h("span", { class: "mono", style: { fontSize: "12px", flex: "1" } }, s.host), h("span", { class: "faint", style: { fontSize: "11px" } }, s.program_name))),
-      group("Pending invitations", "lock", d.invitations, (p) => row("#/programs/" + p.id, icon("lock", 12), h("span", { style: { flex: "1" } }, p.name), h("span", { class: "faint", style: { fontSize: "11px" } }, p.invitation_status)))));
-}
-
-/* ═══ JOURNAL ═══ */
-async function viewJournal() {
-  const list = await GET("/journal");
-  const jf = (label, v) => v ? h("div", {}, h("div", { class: "kicker", style: { marginBottom: "3px" } }, label), h("div", { class: "muted", style: { fontSize: "13px", whiteSpace: "pre-wrap" } }, v)) : null;
-  return page(
-    h("div", { class: "page-head" }, h("div", {}, h("div", { class: "h1" }, "Research journal"), h("div", { class: "sub" }, "Daily log of what you tested and found.")), h("button", { class: "btn primary", onclick: () => journalModal() }, icon("plus", 15), "New Entry")),
-    list.length ? h("div", { class: "stack", style: { gap: "12px" } }, list.map((e) => h("div", { class: "card pad" },
-      h("div", { class: "spread", style: { marginBottom: "12px" } },
-        h("div", { class: "row", style: { gap: "8px" } }, icon("book", 15), h("span", { style: { fontWeight: "600" } }, new Date(e.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }))),
-        h("div", { class: "row", style: { gap: "10px" } }, h("span", { class: "muted", style: { fontSize: "12px" } }, e.programs_worked), h("span", { style: { fontSize: "12px", fontWeight: "600", padding: "1px 8px", borderRadius: "10px", background: "var(--accent-soft)", color: "var(--accent)" } }, e.hours + "h"),
-          h("button", { class: "icon-btn", onclick: () => journalModal(e) }, icon("edit", 14)), h("button", { class: "icon-btn", onclick: async () => { if (await confirmDialog("Delete entry for " + e.date + "?")) { await DEL("/journal/" + e.id); navigate(); } } }, icon("trash", 14)))),
-      h("div", { class: "grid2", style: { gap: "14px" } }, jf("What I tested", e.tested), jf("What I found", e.found), jf("Interesting", e.interesting), jf("Tomorrow", e.tomorrow))))) : h("div", { class: "empty" }, "No journal entries yet."));
-}
-function journalModal(existing) {
-  const f = existing ? Object.assign({}, existing) : { date: new Date().toISOString().slice(0, 10), hours: 2 };
-  const set = (k) => (e) => (f[k] = e.target.value);
-  openModal(h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
-    h("div", { class: "modal-head" }, h("div", { style: { fontWeight: "600" } }, existing ? "Edit Entry" : "New Journal Entry"), h("button", { class: "icon-btn", onclick: closeModal }, icon("x"))),
-    h("div", { class: "modal-body" },
-      h("div", { class: "grid2" }, field("Date", input({ type: "date", value: f.date, oninput: set("date") })), field("Hours", input({ type: "number", step: "0.5", value: f.hours, oninput: (e) => (f.hours = parseFloat(e.target.value)) }))),
-      field("Programs worked on", input({ value: f.programs_worked || "", oninput: set("programs_worked") })),
-      field("What I tested", textarea({ rows: 2, value: f.tested || "", oninput: set("tested") })),
-      h("div", { class: "grid2" }, field("What I found", textarea({ rows: 2, value: f.found || "", oninput: set("found") })), field("Tomorrow", textarea({ rows: 2, value: f.tomorrow || "", oninput: set("tomorrow") })))),
-    h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: closeModal }, "Cancel"),
-      h("button", { class: "btn primary", onclick: async () => { existing ? await PATCH("/journal/" + existing.id, f) : await POST("/journal", f); closeModal(); toast("Saved", "ok"); navigate(); } }, "Save"))));
 }
 
 /* ── boot ── */
