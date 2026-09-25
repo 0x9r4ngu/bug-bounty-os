@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
 #
-# run.sh — start Bug Bounty OS (API + web client)
+# run.sh — start Bug Bounty OS
 #
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# First run? install dependencies automatically.
-if [ ! -d node_modules ]; then
-  echo "› node_modules missing — running ./install.sh first…"
-  ./install.sh
-fi
+PY=""
+for c in python3 python; do
+  if command -v "$c" >/dev/null 2>&1; then PY="$c"; break; fi
+done
+if [ -z "$PY" ]; then echo "Python 3 not found — run ./install.sh"; exit 1; fi
 
-# The SQLite database is created + seeded automatically on first launch.
-echo "› Starting Bug Bounty OS"
-echo "    App  → http://localhost:5173"
-echo "    API  → http://localhost:5177"
-echo "    (Ctrl+C to stop)"
+PORT="${PORT:-8787}"
+echo "› Bug Bounty OS  →  http://localhost:${PORT}"
+echo "  (Ctrl+C to stop · data is stored in data/bugbounty.db)"
 echo ""
-
-exec npm run dev
+exec "$PY" app.py
