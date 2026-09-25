@@ -1,69 +1,109 @@
 # Bug Bounty OS
 
-A local-first personal security-research platform — programs, entry points, findings,
-a full Markdown report workspace, and interactive analytics. Single-user, your data
-never leaves the machine (SQLite file at `data/bugbounty.db`).
+A **local-first, single-user security-research platform** — your persistent source of truth for bug
+bounty work. Track programs and scope, enumerate assets and subdomains, run a per-scope pentest
+methodology checklist, log findings bound to their assets, and write submission-ready Markdown
+reports — all in one connected workspace. Everything lives in a local SQLite file; nothing leaves
+your machine.
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/0x9r4ngu/bug-bounty-os.git
+cd bug-bounty-os
+./install.sh      # checks Node and installs dependencies
+./run.sh          # starts the app
+```
+
+Then open **http://localhost:5173**.
+
+> The database (`data/bugbounty.db`) is created and seeded with demo data on first launch. Delete
+> `data/*.db*` any time to start empty.
+
+### Requirements
+- **Node.js ≥ 22.5** (Node 22 LTS or 24 recommended). The backend uses Node's built-in `node:sqlite`
+  — no native modules, no build step.
+
+---
+
+## Features
+
+- **Programs & scope** — public / private / invite-only / VDP, invitation tracking, watchlist,
+  Markdown research notes, and a full activity timeline (all inside the program's **Overview**).
+- **Assets & subdomains** — add in-scope hosts as assets; wildcard assets hold **nested subdomains**
+  with **bulk paste** and a one-click **live HTTP probe** (status, code, page title).
+- **Findings** — always **bound to an asset (or a specific subdomain)**. "New Finding" creates the
+  finding + a linked report and drops you straight into the editor.
+- **Markdown report editor** — split-pane CodeMirror + live sanitized preview, **autosave** with
+  local draft recovery, section **outline**, **secret detection & redaction**, reusable **snippets**
+  and **templates**, and export to **Markdown / HTML** (auto-redacted).
+- **Per-scope checklist** — a 16-part / 76-item web pentest methodology checklist per asset, each
+  item with an expandable *"how to test"* guide and live **progress tracking**.
+- **Analytics** (home page) — bounty & reports over time, findings by severity, vulnerability-class
+  distribution, status funnel, methodology coverage, and more, with a program filter.
+- **Unfinished business** — untested endpoints, potential findings, unfinished reports, submissions
+  awaiting response, and pending invitations, each linking back to its source.
+- **Research journal** — a daily log of what you tested, found, and what's next.
+- **⌘K global search** across programs, findings, and reports.
+
+---
 
 ## Stack
 
-- **Frontend** — React + Vite + TypeScript, Tailwind v4, ECharts (charts), CodeMirror 6 (editor)
-- **Backend** — Fastify + Node's built-in `node:sqlite` (raw SQL, no ORM, no native addon)
-- **DB** — SQLite (`data/bugbounty.db`, auto-created + seeded on first run)
+| Layer     | Tech |
+|-----------|------|
+| Frontend  | React + Vite + TypeScript, Tailwind CSS v4, ECharts, CodeMirror 6 |
+| Backend   | Fastify + **`node:sqlite`** (raw SQL, no ORM, no native addon) |
+| Database  | SQLite file at `data/bugbounty.db` (auto-created + seeded) |
+| Design    | Monospace "mono" terminal aesthetic; theme is token-driven in `client/src/index.css` (`@theme`) — recolor the whole app by editing those CSS variables |
 
-## Run
+The dev server runs both processes via `concurrently`: Vite (`:5173`) proxies `/api` to Fastify
+(`:5177`).
+
+---
+
+## Scripts
 
 ```bash
-npm install
-npm run dev
+npm run dev     # start API + client (what run.sh calls)
+npm run build   # production build of the client
+npm run start   # start the API server only
+npm run qa      # headless QA: render check + click-through interaction tests (needs the app running)
 ```
 
-- App:  http://localhost:5173
-- API:  http://localhost:5177
+Regenerate the checklist template from its source Markdown:
 
-The database is created and seeded with demo programs/findings/reports on first launch.
-To start empty, delete `data/bugbounty.db*` before running — seeding only fires when the
-`programs` table is empty.
+```bash
+node scripts/build-checklist.mjs
+```
 
-> Note: the server runs on Node's built-in SQLite via
-> `node --experimental-sqlite --import tsx server/index.ts` (no native addon, no build step). It runs
-> without `--watch`, so restart it manually after editing server code. If server changes don't seem to
-> apply, a stale process may be running cached code — kill by port (`lsof -ti:5177`) and clear the tsx
-> cache (`rm -rf node_modules/.cache/tsx`).
+---
 
-## What's built (working today)
-
-| Area | Features |
-|------|----------|
-| Dashboard | 14 KPI cards (clickable), active research, bounty trend, severity donut, coverage bars, "what should I do next?", activity feed |
-| Programs | list + filters (private/watched), create modal, private-program indicators, invitation fields |
-| Program workspace | tabs: Overview, Entry Points, Assets, Endpoints, Findings, **Checklist**, Notes (autosave), Timeline — all with add/edit/delete |
-| Per-scope checklist | full 16-part / 76-item web pentest checklist per asset (scope), each item with an expandable "how to test" guide, checkboxes, and per-scope + overall program progress tracking |
-| Findings | global list, severity/status/class filters, quick-finding modal |
-| Reports | library with folders/favorites/search/clone |
-| Report editor | split-pane CodeMirror + live sanitized preview, autosave + local draft recovery, outline nav, quality checklist, version history (snapshot/view/restore), metadata panel, **secret detection + redaction**, templates, snippets, Markdown/HTML export (auto-redacted) |
-| Analytics | 10 interactive charts (bounty/reports over time, severity, class, funnel, coverage radar, asset types, tech, hours/day, heatmap) + bounty-by-type/program tables, program filter |
-| Unfinished | untested endpoints, potential findings, unfinished reports, awaiting response, pending invitations — every row links to source |
-| Journal | daily research log |
-| Global | ⌘K / Ctrl+K search across programs, findings, reports |
-
-## Roadmap (from the full spec, not yet built)
-
-Custom drag-drop dashboards, saved filters/query builder, program cloning & custom fields,
-communication log, report follow-up reminders, PDF export, request/response evidence store,
-weekly summary generation, calendar heatmap, multi-program comparison, checklist/methodology
-engine. See the original spec for the full 100-feature checklist.
-
-## Project layout
+## Project structure
 
 ```
 server/
-  db.ts        schema (SQL) + helpers
-  seed.ts      demo data (only when empty)
-  index.ts     Fastify API — all routes
+  db.ts        # SQLite schema (DDL) + migrations + helpers
+  seed.ts      # demo data (only when the DB is empty)
+  index.ts     # Fastify API — all routes
 client/src/
-  App.tsx      shell: sidebar, ⌘K search, router
-  lib/         api, ui primitives, chart theme, report helpers
-  pages/       Dashboard, Programs, ProgramDetail, Findings, Reports, ReportEditor, Analytics, Unfinished, Journal
-design-system/ persisted UI/UX design tokens (MASTER.md)
-data/          bugbounty.db (gitignored)
+  App.tsx      # shell: sidebar, ⌘K search, router
+  lib/         # api client, UI primitives, chart theme, report/checklist/cwe helpers
+  components/  # ProgramChecklist, CweSelect
+  pages/       # Analytics (home), Programs, ProgramDetail, Findings, Reports, ReportEditor, Unfinished, Journal
+scripts/       # build-checklist.mjs (+ cached source), maintenance
+qa/            # headless Chromium QA scripts (puppeteer-core)
+data/          # bugbounty.db (git-ignored, created at runtime)
 ```
+
+---
+
+## Privacy
+
+This is a **local, single-user** tool. All data is stored in a local SQLite file that is **git-ignored**
+and never leaves your machine. Report exports run an automatic **secret-redaction** pass (JWTs, API
+keys, bearer tokens, private IPs, etc.) as a safety net before anything leaves the app.
+
+> Only test systems you are authorized to test. Stay in scope.
