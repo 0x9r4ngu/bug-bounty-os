@@ -1,7 +1,10 @@
-# local database (created + seeded at runtime)
-data/*.db
-data/*.db-wal
-data/*.db-shm
+# runtime data — the database, upload attachments, and seed marker.
+# NEVER commit this: it holds your real scopes, findings and PoC media.
+# app.py recreates data/ (empty) on startup.
+data/
+
+# design reference mockup (not part of the app)
+sample/
 
 # python
 __pycache__/

@@ -1,0 +1,14 @@
+{
+  "name": "bounty-os-e2e",
+  "private": true,
+  "description": "Playwright E2E suite for bounty/os (app stays pure-Python; this is dev-only test tooling)",
+  "scripts": {
+    "pretest": "rm -rf .tmp playwright-report test-results && mkdir -p .tmp",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}

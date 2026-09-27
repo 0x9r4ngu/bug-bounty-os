@@ -1,826 +1,1866 @@
-"use strict";
-/* Bug Bounty OS — vanilla SPA (no framework, no build) */
+/* ============================================================================
+   bounty/os v2 — single-page app
+   Dark zinc + emerald console over the pure-Python API in app.py.
+   ========================================================================== */
+(function () {
+  'use strict';
 
-/* ── tiny hyperscript ── */
-function h(tag, attrs, ...kids) {
-  const e = document.createElement(tag);
-  if (attrs) for (const [k, v] of Object.entries(attrs)) {
-    if (v == null || v === false) continue;
-    if (k === "class") e.className = v;
-    else if (k === "html") e.innerHTML = v;
-    else if (k === "style" && typeof v === "object") Object.assign(e.style, v);
-    else if (k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2).toLowerCase(), v);
-    else e.setAttribute(k, v === true ? "" : v);
-  }
-  for (const kid of kids.flat(Infinity)) {
-    if (kid == null || kid === false) continue;
-    e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
-  }
-  return e;
-}
-const $ = (s, r = document) => r.querySelector(s);
+  // ── tiny DOM helpers ──────────────────────────────────────────────────────
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const app = () => $('#app');
+  const overlay = () => $('#overlay');
 
-/* ── icons (lucide paths) ── */
-const IP = {
-  home: "M3 9.5 12 3l9 6.5V21H3z", shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
-  bug: "M8 2l1.5 2.5M16 2l-1.5 2.5M9 7h6a4 4 0 0 1 4 4v3a7 7 0 0 1-14 0v-3a4 4 0 0 1 4-4ZM5 12H2m20 0h-3M6 19l-2 2m14-2 2 2M5 7 3 5m16 2 2-2",
-  file: "M14 3v5h5M14 3H6v18h12V8zM9 13h6M9 17h6", chart: "M3 3v18h18M8 15v-5m4 5V7m4 8v-3",
-  book: "M4 4v16h13a2 2 0 0 0 2-2V4H6a2 2 0 0 0-2 2v0M4 4h2m0 0v14", list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
-  search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.3-4.3", plus: "M12 5v14M5 12h14",
-  sun: "M12 3v2m0 14v2M5 5l1.5 1.5M17.5 17.5 19 19M3 12h2m14 0h2M5 19l1.5-1.5M17.5 6.5 19 5M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z",
-  moon: "M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z", panel: "M9 3v18M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
-  ext: "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", trash: "M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3",
-  edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z", chevR: "m9 18 6-6-6-6", chevD: "m6 9 6 6 6-6",
-  x: "M18 6 6 18M6 6l12 12", star: "M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8L3.5 9.7l5.9-.9z",
-  copy: "M9 9h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2M5 15H4a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1",
-  check: "m20 6-11 11-5-5", lock: "M6 10V7a6 6 0 0 1 12 0v3M5 10h14v11H5z", eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
-  radio: "M4.9 19.1a10 10 0 0 1 0-14.2m14.2 0a10 10 0 0 1 0 14.2M7.8 16.2a6 6 0 0 1 0-8.4m8.4 0a6 6 0 0 1 0 8.4M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z",
-  arrowUR: "M7 17 17 7M7 7h10v10", download: "M12 3v12m0 0 4-4m-4 4-4-4M4 21h16", dollar: "M12 2v20M17 6a4 4 0 0 0-4-3h-2a4 4 0 0 0 0 8h2a4 4 0 0 1 0 8h-2a4 4 0 0 1-4-3",
-  boxes: "M12 2 4 6v12l8 4 8-4V6zM4 6l8 4 8-4M12 10v12", clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 7v5l3 2",
-  back: "m15 18-6-6 6-6", cmd: "M6 4a2 2 0 1 1-2 2h12a2 2 0 1 1-2-2v12a2 2 0 1 1 2 2H6a2 2 0 1 1 2-2z",
-};
-function icon(name, size) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor"); svg.setAttribute("stroke-width", "1.9");
-  svg.setAttribute("stroke-linecap", "round"); svg.setAttribute("stroke-linejoin", "round");
-  if (size) { svg.setAttribute("width", size); svg.setAttribute("height", size); }
-  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  p.setAttribute("d", IP[name] || ""); svg.append(p);
-  return svg;
-}
+  const esc = (s) =>
+    (s == null ? '' : String(s))
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-/* ── api ── */
-async function api(path, opts) {
-  const res = await fetch("/api" + path, opts);
-  if (!res.ok) { let m = res.status; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
-  return res.json();
-}
-const GET = (p) => api(p);
-const POST = (p, b) => api(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b || {}) });
-const PATCH = (p, b) => api(p, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b || {}) });
-const DEL = (p) => api(p, { method: "DELETE" });
+  const attr = (s) => esc(s).replace(/`/g, '&#96;');
 
-/* ── format + color ── */
-const money = (n) => (n >= 1000 ? "$" + (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + "k" : "$" + (n || 0));
-function ago(iso) {
-  const d = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (d < 60) return "just now"; if (d < 3600) return Math.floor(d / 60) + "m ago";
-  if (d < 86400) return Math.floor(d / 3600) + "h ago"; return Math.floor(d / 86400) + "d ago";
-}
-const SEV = { Critical: "--crit", High: "--high", Medium: "--med", Low: "--low", Informational: "--info" };
-const STA = { Potential: "--info", Confirmed: "--blue", Submitted: "--violet", Triaged: "--warn", Accepted: "--ok", Resolved: "--ok", Draft: "--info", "In Progress": "--blue", Ready: "--warn", Rejected: "--crit", Duplicate: "--info", Archived: "--faint", Active: "--ok", Paused: "--warn", Closed: "--faint", Expired: "--faint" };
-const VIS = { PUBLIC: "--blue", PRIVATE: "--warn", INVITE_ONLY: "--violet", VDP: "--info", INTERNAL: "--crit", CUSTOM: "--info" };
-const SUBC = { Live: "--ok", Redirect: "--warn", Offline: "--crit", Unknown: "--faint", "Out of Scope": "--faint" };
-const sevVar = (s) => "var(" + (SEV[s] || "--info") + ")";
-function badge(text, cvar) {
-  const c = "var(" + cvar + ")";
-  return h("span", { class: "badge", style: { color: c, background: `color-mix(in srgb, ${c} 14%, transparent)`, borderColor: `color-mix(in srgb, ${c} 34%, transparent)` } }, text);
-}
-const sevBadge = (s) => badge(s, SEV[s] || "--info");
-const staBadge = (s) => badge(s, STA[s] || "--info");
-
-/* ── toast + confirm + modal ── */
-function toast(msg, kind) {
-  const t = h("div", { class: "toast" }, h("span", { class: "dot", style: { background: `var(--${kind === "error" ? "crit" : kind === "ok" ? "ok" : "accent"})` } }), msg);
-  $("#toasts").append(t); setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 250); }, 2600);
-}
-let modalEl = null;
-function openModal(node, center) {
-  closeModal();
-  const ov = h("div", { class: "overlay" + (center ? " center" : ""), onclick: (e) => { if (e.target === ov) closeModal(); } }, node);
-  modalEl = ov; document.body.append(ov);
-  document.addEventListener("keydown", escClose);
-}
-function escClose(e) { if (e.key === "Escape") closeModal(); }
-function closeModal() { if (modalEl) { modalEl.remove(); modalEl = null; document.removeEventListener("keydown", escClose); } }
-function confirmDialog(opts) {
-  const o = typeof opts === "string" ? { message: opts } : opts;
-  return new Promise((resolve) => {
-    const done = (v) => { closeModal(); resolve(v); };
-    openModal(h("div", { class: "modal", style: { maxWidth: "420px" }, onclick: (e) => e.stopPropagation() },
-      h("div", { class: "modal-body" },
-        h("div", { style: { fontWeight: "600", fontSize: "15px", marginBottom: "6px" } }, o.title || "Confirm"),
-        h("div", { class: "muted", style: { fontSize: "13px", lineHeight: "1.55" } }, o.message)),
-      h("div", { class: "modal-foot" },
-        h("button", { class: "btn", onclick: () => done(false) }, o.cancel || "Cancel"),
-        h("button", { class: "btn " + (o.danger === false ? "primary" : "danger"), onclick: () => done(true) }, o.confirm || "Delete"))
-    ), true);
-  });
-}
-function field(label, control) { return h("div", { class: "field" }, h("label", {}, label), control); }
-function input(attrs) { return h("input", Object.assign({ class: "input" }, attrs)); }
-function textarea(attrs) { return h("textarea", Object.assign({ class: "input" }, attrs)); }
-function select(opts, val, attrs) {
-  const s = h("select", Object.assign({ class: "select" }, attrs));
-  for (const o of opts) { const [v, l] = Array.isArray(o) ? o : [o, o]; const op = h("option", { value: v }, l); if (String(v) === String(val)) op.selected = true; s.append(op); }
-  return s;
-}
-
-/* ── markdown (small, safe) ── */
-function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
-function inlineMd(s) {
-  s = s.replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>");
-  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2">');
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  s = s.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
-  return s;
-}
-function mdToHtml(src) {
-  const lines = esc(src || "").split("\n"); let out = []; let i = 0;
-  while (i < lines.length) {
-    let l = lines[i];
-    if (/^```/.test(l)) { const lang = l.slice(3).trim(); let buf = []; i++; while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]); i++; out.push('<pre><code>' + buf.join("\n") + "</code></pre>"); continue; }
-    if (/^#{1,3}\s/.test(l)) { const n = l.match(/^#+/)[0].length; out.push(`<h${n}>` + inlineMd(l.replace(/^#+\s/, "")) + `</h${n}>`); i++; continue; }
-    if (/^\s*[-*]\s/.test(l)) { let buf = []; while (i < lines.length && /^\s*[-*]\s/.test(lines[i])) buf.push("<li>" + inlineMd(lines[i++].replace(/^\s*[-*]\s/, "")) + "</li>"); out.push("<ul>" + buf.join("") + "</ul>"); continue; }
-    if (/^\s*\d+\.\s/.test(l)) { let buf = []; while (i < lines.length && /^\s*\d+\.\s/.test(lines[i])) buf.push("<li>" + inlineMd(lines[i++].replace(/^\s*\d+\.\s/, "")) + "</li>"); out.push("<ol>" + buf.join("") + "</ol>"); continue; }
-    if (/^\s*>/.test(l)) { out.push("<blockquote>" + inlineMd(l.replace(/^\s*>\s?/, "")) + "</blockquote>"); i++; continue; }
-    if (/^\s*(-{3,}|_{3,})\s*$/.test(l)) { out.push("<hr>"); i++; continue; }
-    if (l.includes("|") && lines[i + 1] && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1])) {
-      const cells = (r) => r.replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
-      const head = cells(l); i += 2; let body = [];
-      while (i < lines.length && lines[i].includes("|")) body.push(cells(lines[i++]));
-      out.push("<table><thead><tr>" + head.map((c) => "<th>" + inlineMd(c) + "</th>").join("") + "</tr></thead><tbody>" +
-        body.map((r) => "<tr>" + r.map((c) => "<td>" + inlineMd(c) + "</td>").join("") + "</tr>").join("") + "</tbody></table>"); continue;
-    }
-    if (l.trim() === "") { i++; continue; }
-    let buf = [l]; i++; while (i < lines.length && lines[i].trim() !== "" && !/^(#{1,3}\s|```|\s*[-*]\s|\s*\d+\.\s|\s*>)/.test(lines[i])) buf.push(lines[i++]);
-    out.push("<p>" + inlineMd(buf.join(" ")) + "</p>");
-  }
-  return out.join("\n");
-}
-
-/* ── charts (svg) ── */
-function svg(w, h_, kids, attrs) {
-  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  s.setAttribute("viewBox", `0 0 ${w} ${h_}`); s.setAttribute("width", "100%"); s.setAttribute("preserveAspectRatio", "none");
-  if (attrs) for (const [k, v] of Object.entries(attrs)) s.setAttribute(k, v);
-  for (const k of kids.flat(Infinity)) if (k) s.append(k);
-  return s;
-}
-function sline(tag, attrs) { const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; }
-function sparkline(values, color) {
-  const w = 260, ht = 60, max = Math.max(1, ...values), min = Math.min(0, ...values);
-  const pts = values.map((v, i) => [values.length === 1 ? w : (i / (values.length - 1)) * w, ht - 6 - ((v - min) / (max - min || 1)) * (ht - 12)]);
-  const line = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
-  const area = line + ` L${w} ${ht} L0 ${ht} Z`;
-  const c = color || "var(--accent)";
-  return svg(w, ht, [
-    sline("path", { d: area, fill: c, opacity: ".1" }),
-    sline("path", { d: line, fill: "none", stroke: c, "stroke-width": "2" }),
-    pts.length ? sline("circle", { cx: pts[pts.length - 1][0], cy: pts[pts.length - 1][1], r: "3", fill: c }) : null,
-  ], { style: "height:60px" });
-}
-function donut(segs) {
-  const total = segs.reduce((a, s) => a + s.value, 0) || 1; const R = 42, r = 27, cx = 50, cy = 50; let ang = -Math.PI / 2;
-  const arcs = segs.filter((s) => s.value).map((s) => {
-    const frac = s.value / total, a2 = ang + frac * 2 * Math.PI;
-    const x1 = cx + R * Math.cos(ang), y1 = cy + R * Math.sin(ang), x2 = cx + R * Math.cos(a2), y2 = cy + R * Math.sin(a2);
-    const xi1 = cx + r * Math.cos(a2), yi1 = cy + r * Math.sin(a2), xi2 = cx + r * Math.cos(ang), yi2 = cy + r * Math.sin(ang);
-    const large = frac > 0.5 ? 1 : 0; ang = a2;
-    return sline("path", { d: `M${x1} ${y1} A${R} ${R} 0 ${large} 1 ${x2} ${y2} L${xi1} ${yi1} A${r} ${r} 0 ${large} 0 ${xi2} ${yi2} Z`, fill: s.color });
-  });
-  return svg(100, 100, arcs, { width: "150", height: "150", style: "width:150px;height:150px" });
-}
-function hbars(items, color) {
-  const max = Math.max(1, ...items.map((i) => i.value)); const rows = items.map((it, i) =>
-    h("div", { class: "row", style: { gap: "10px", margin: "7px 0" } },
-      h("div", { class: "mono", style: { width: "120px", fontSize: "12px", color: "var(--muted)", textAlign: "right", flexShrink: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.name),
-      h("div", { style: { flex: "1", height: "16px", background: "var(--panel-2)", borderRadius: "4px", overflow: "hidden" } },
-        h("div", { style: { width: (it.value / max * 100) + "%", height: "100%", background: color || "var(--accent)", borderRadius: "4px" } })),
-      h("div", { class: "tnum", style: { width: "28px", fontSize: "12px", color: "var(--muted)" } }, it.value)));
-  return h("div", {}, rows);
-}
-function lineMulti(months, series) {
-  const w = 520, ht = 190, pad = 26; const max = Math.max(1, ...series.flatMap((s) => s.data));
-  const xs = (i) => months.length <= 1 ? w / 2 : pad + (i / (months.length - 1)) * (w - pad * 2);
-  const ys = (v) => ht - pad - (v / max) * (ht - pad * 2);
-  const grid = [0, 0.5, 1].map((f) => sline("line", { x1: pad, x2: w - pad, y1: ys(max * f), y2: ys(max * f), stroke: "var(--border)", "stroke-width": "1" }));
-  const paths = series.map((s) => sline("path", { d: s.data.map((v, i) => (i ? "L" : "M") + xs(i) + " " + ys(v)).join(" "), fill: "none", stroke: s.color, "stroke-width": "2" }));
-  return svg(w, ht, [...grid, ...paths], { style: "height:190px" });
-}
-
-/* ── shell ── */
-const NAV = [
-  ["", "home", "Overview"], ["programs", "shield", "Programs"], ["findings", "bug", "Findings"],
-  ["reports", "file", "Reports"], ["analytics", "chart", "Analytics"],
-];
-let collapsed = false;
-function toggleTheme() {
-  const cur = document.documentElement.getAttribute("data-theme")
-    || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-  const next = cur === "dark" ? "light" : "dark";
-  document.documentElement.setAttribute("data-theme", next);
-  try { localStorage.setItem("theme", next); } catch {}
-  $("#theme-ic").replaceWith(themeIcon());
-}
-function themeIcon() {
-  const isLight = (document.documentElement.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")) === "light";
-  const el = icon(isLight ? "moon" : "sun"); el.id = "theme-ic"; return el;
-}
-function buildShell() {
-  const app = $("#app"); app.innerHTML = "";
-  const side = h("aside", { class: "sidebar" + (collapsed ? " collapsed" : ""), id: "sidebar" },
-    h("div", { class: "brand" },
-      h("div", { class: "brand-logo" }, icon("shield", 16)),
-      h("div", { class: "brand-text" }, "bounty", h("b", {}, "OS"))),
-    h("div", { class: "nav-label lbl" }, "Workspace"),
-    h("nav", { class: "nav" }, NAV.map(([r, ic, label]) =>
-      h("a", { href: "#/" + r, class: "nav-item", "data-route": r }, icon(ic), h("span", { class: "lbl" }, label)))),
-    h("div", { class: "side-foot" }, icon("lock", 12), h("span", {}, "Local · SQLite")));
-  const view = h("div", { id: "view", style: { flex: "1", display: "flex", flexDirection: "column", minHeight: "0", overflow: "hidden" } });
-  const main = h("div", { class: "main" },
-    h("header", { class: "topbar" },
-      h("button", { class: "icon-btn", title: "Toggle sidebar", onclick: () => { collapsed = !collapsed; $("#sidebar").classList.toggle("collapsed"); } }, icon("panel")),
-      h("button", { class: "searchbar", onclick: openSearch },
-        icon("search", 15), h("span", {}, "Search…"), h("kbd", {}, "⌘K")),
-      h("div", { style: { marginLeft: "auto" }, class: "row" },
-        h("button", { class: "icon-btn", title: "Toggle theme", onclick: toggleTheme }, themeIcon()))),
-    view);
-  app.append(h("div", { class: "app" }, side, main));
-}
-
-/* ── router ── */
-function parseHash() {
-  const raw = location.hash.replace(/^#\/?/, ""); const [path, qs] = raw.split("?");
-  const query = {}; new URLSearchParams(qs || "").forEach((v, k) => (query[k] = v));
-  return { path: path || "", query };
-}
-const ROUTES = {
-  "": viewOverview, "programs": viewPrograms, "findings": viewFindings, "reports": viewReports,
-  "analytics": viewAnalytics,
-};
-async function navigate() {
-  const { path, query } = parseHash();
-  const seg = path.split("/");
-  let fn, arg;
-  if (seg[0] === "programs" && seg[1]) { fn = viewProgram; arg = seg[1]; }
-  else if (seg[0] === "reports" && seg[1]) { fn = viewReportEditor; arg = seg[1]; }
-  else fn = ROUTES[seg[0]] || viewOverview;
-  document.querySelectorAll(".nav-item").forEach((n) => n.classList.toggle("active", n.getAttribute("data-route") === seg[0]));
-  const view = $("#view"); view.innerHTML = "";
-  const spin = h("div", { style: { padding: "40px", color: "var(--faint)" } }, "Loading…"); view.append(spin);
-  try {
-    const node = await fn(arg, query);
-    view.innerHTML = ""; view.append(node);
-  } catch (e) { view.innerHTML = ""; view.append(h("div", { class: "page" }, h("div", { class: "empty" }, "Error: " + e.message))); }
-}
-function page(...kids) { return h("div", { class: "scroll" }, h("div", { class: "page" }, kids.flat(Infinity))); }
-function go(hash) { location.hash = hash; }
-
-/* ═══ VIEWS ═══ */
-
-async function viewOverview() {
-  const d = await GET("/overview");
-  const k = d.kpis;
-  const kpi = (label, val, ic, to, color) => h("div", { class: "kpi" + (to ? " link" : ""), onclick: to ? () => go(to) : null },
-    h("div", { class: "kpi-label" }, label, icon(ic)),
-    h("div", { class: "kpi-val", style: color ? { color } : null }, val));
-  const trendVals = d.trend.length ? d.trend.map((t) => t.bounty) : [0, 0];
-  return page(
-    h("div", { class: "page-head" }, h("div", {}, h("div", { class: "h1" }, "Overview"), h("div", { class: "sub" }, "Your research at a glance."))),
-    h("div", { class: "kpi-grid" },
-      kpi("Total bounty", money(k.total_bounty), "dollar", "#/analytics", "var(--ok)"),
-      kpi("Findings", k.findings, "bug", "#/findings"),
-      kpi("Reports", k.reports, "file", "#/reports"),
-      kpi("Programs", k.programs, "shield", "#/programs")),
-    h("div", { class: "grid2", style: { marginTop: "16px" } },
-      h("div", { class: "card" },
-        h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Bounty trend"), h("a", { href: "#/analytics", class: "link-accent" }, "Analytics")),
-        h("div", { class: "pad" }, sparkline(trendVals, "var(--ok)"),
-          h("div", { class: "row", style: { marginTop: "10px", gap: "16px" } },
-            d.trend.map((t) => h("div", {}, h("div", { class: "faint", style: { fontSize: "11px" } }, t.month), h("div", { style: { fontWeight: "600" } }, money(t.bounty))))))),
-      h("div", { class: "card" },
-        h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Findings by severity")),
-        h("div", { class: "pad row", style: { gap: "20px" } },
-          donut(d.by_severity.map((s) => ({ value: s.value, color: sevVar(s.name) }))),
-          h("div", { class: "stack", style: { gap: "6px", flex: "1" } },
-            d.by_severity.map((s) => h("div", { class: "row" },
-              h("span", { class: "dot", style: { background: sevVar(s.name) } }), h("span", { class: "muted", style: { fontSize: "12.5px" } }, s.name),
-              h("span", { class: "tnum", style: { marginLeft: "auto", fontWeight: "600" } }, s.value))))))),
-    h("div", { class: "grid2", style: { marginTop: "16px" } },
-      h("div", { class: "card" },
-        h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Recent findings"), h("a", { href: "#/findings", class: "link-accent" }, "All")),
-        d.recent.length ? h("table", { class: "table" }, h("tbody", {}, d.recent.map((f) =>
-          h("tr", { class: "clickable", onclick: () => go("#/programs/" + f.program_id + "?tab=findings") },
-            h("td", { style: { width: "1%" } }, sevBadge(f.severity)),
-            h("td", {}, h("div", { style: { fontWeight: "500" } }, f.title), h("div", { class: "faint mono", style: { fontSize: "11px" } }, f.program_name)),
-            h("td", { style: { textAlign: "right" } }, f.bounty > 0 ? h("span", { style: { color: "var(--ok)", fontWeight: "600" } }, money(f.bounty)) : h("span", { class: "faint" }, "—")))))) : h("div", { class: "pad" }, h("div", { class: "empty" }, "No findings yet."))),
-      h("div", { class: "card" },
-        h("div", { class: "card-head" }, h("div", { class: "card-title" }, "What's next")),
-        h("div", { class: "pad stack", style: { gap: "8px" } },
-          d.next.length ? d.next.map((n) => h("a", { href: n.to, class: "row hover-card", style: { padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "8px" } },
-            h("span", { style: { minWidth: "22px", height: "22px", padding: "0 6px", borderRadius: "6px", background: "var(--accent-soft)", color: "var(--accent)", fontWeight: "700", fontSize: "12px", display: "grid", placeItems: "center" } }, n.count),
-            h("span", { class: "muted", style: { fontSize: "13px" } }, n.label))) : h("div", { class: "empty" }, "All caught up.")))),
-  );
-}
-
-async function viewPrograms(_, query) {
-  const priv = query.private === "1", pub = query.public === "1";
-  const list = await GET("/programs?" + new URLSearchParams(priv ? { private: "1" } : pub ? { public: "1" } : {}));
-  if (query.new === "1") setTimeout(programModal, 30);
-  const filt = (label, active, to) => h("button", { class: active ? "active" : "", onclick: () => go(to) }, label);
-  return page(
-    h("div", { class: "page-head" },
-      h("div", {}, h("div", { class: "h1" }, "Programs"), h("div", { class: "sub" }, list.length + " tracked")),
-      h("button", { class: "btn primary", onclick: programModal }, icon("plus", 15), "New Program")),
-    h("div", { class: "pill-tabs", style: { marginBottom: "18px" } },
-      filt("All", !priv && !pub, "#/programs"), filt("Private", priv, "#/programs?private=1"), filt("Public", pub, "#/programs?public=1")),
-    list.length ? h("div", { class: "grid3" }, list.map((p) => programCard(p))) : h("div", { class: "empty" }, "No programs."));
-}
-function programCard(p) {
-  const stats = [["Assets", p.asset_count], ["Findings", p.finding_count], ["Reports", p.report_count]];
-  return h("a", { href: "#/programs/" + p.id, class: "card hover-card", style: { padding: "16px", display: "block" } },
-    h("div", { class: "spread" },
-      h("div", { class: "row", style: { gap: "7px", minWidth: "0" } }, p.is_private ? icon("lock", 13) : null, h("span", { style: { fontWeight: "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, p.name)),
-      p.is_watched ? icon("eye", 15) : null),
-    h("div", { class: "faint", style: { fontSize: "12px", marginTop: "2px" } }, (p.company || "—") + " · " + (p.platform || "—")),
-    h("div", { class: "row", style: { gap: "6px", marginTop: "11px" } }, badge(VIS[p.visibility] ? p.visibility.replace("_", " ") : p.visibility, VIS[p.visibility] || "--info"), staBadge(p.status)),
-    h("div", { class: "row", style: { marginTop: "13px", paddingTop: "12px", borderTop: "1px solid var(--border)", justifyContent: "space-around" } },
-      stats.map(([l, v]) => h("div", { style: { textAlign: "center" } }, h("div", { style: { fontWeight: "700", fontSize: "16px" } }, v), h("div", { class: "faint", style: { fontSize: "10.5px" } }, l)))));
-}
-function programModal() {
-  const f = { visibility: "PUBLIC", platform: "HackerOne" };
-  const set = (k) => (e) => (f[k] = e.target.value);
-  const priv = h("div");
-  const visSel = select(Object.keys(VIS).map((v) => [v, v.replace("_", " ")]), "PUBLIC", { onchange: (e) => { f.visibility = e.target.value; renderPriv(); } });
-  function renderPriv() {
-    priv.innerHTML = "";
-    if (!["PUBLIC", "VDP"].includes(f.visibility))
-      priv.append(field("Invitation status", select(["", "Received", "Accepted", "Pending", "Expired", "Declined"], f.invitation_status || "", { onchange: set("invitation_status") })));
-  }
-  renderPriv();
-  const m = h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
-    h("div", { class: "modal-head" }, h("div", { style: { fontWeight: "600" } }, "New Program"), h("button", { class: "icon-btn", onclick: closeModal }, icon("x"))),
-    h("div", { class: "modal-body" },
-      h("div", { class: "grid2" },
-        field("Name", input({ oninput: set("name"), placeholder: "Acme Cloud" })),
-        field("Company", input({ oninput: set("company"), placeholder: "Acme Inc." })),
-        field("Platform", select(["HackerOne", "Bugcrowd", "Intigriti", "YesWeHack", "Immunefi", "Private", "Other"], "HackerOne", { onchange: set("platform") })),
-        field("Visibility", visSel)),
-      priv,
-      field("In-scope assets (one host per line)", textarea({ rows: 3, class: "input mono", oninput: set("assets"), placeholder: "app.acme.com\napi.acme.com" })),
-      field("Rewards", input({ oninput: set("rewards"), placeholder: "Critical $5000 / High $2000" }))),
-    h("div", { class: "modal-foot" },
-      h("label", { class: "row", style: { marginRight: "auto", fontSize: "13px", color: "var(--muted)", cursor: "pointer" } }, h("input", { type: "checkbox", onchange: (e) => (f.is_watched = e.target.checked) }), "Watch"),
-      h("button", { class: "btn", onclick: closeModal }, "Cancel"),
-      h("button", { class: "btn primary", onclick: async () => { if (!f.name) return toast("Name required", "error"); const { id } = await POST("/programs", f); closeModal(); toast("Program created", "ok"); go("#/programs/" + id); } }, "Create")));
-  openModal(m);
-}
-
-window.__bbos = { page, GET, POST, PATCH, DEL, h, icon, badge, sevBadge, staBadge, money, ago, field, input, textarea, select, toast, confirmDialog, openModal, closeModal, go, mdToHtml, donut, hbars, lineMulti, sevVar, SEV, STA, VIS, SUBC };
-
-/* ── search palette ── */
-let searchTimer;
-function openSearch() {
-  const inp = h("input", { placeholder: "Search programs, findings, reports…", autofocus: true });
-  const results = h("div", { class: "cmdk-results" });
-  inp.addEventListener("input", () => {
-    clearTimeout(searchTimer); const q = inp.value.trim();
-    if (!q) { results.innerHTML = ""; return; }
-    searchTimer = setTimeout(async () => {
-      const r = await GET("/search?q=" + encodeURIComponent(q)); results.innerHTML = "";
-      const grp = (title, items, render) => { if (!items.length) return; results.append(h("div", { class: "cmdk-group" }, title)); items.forEach((it) => results.append(render(it))); };
-      grp("Programs", r.programs, (p) => h("div", { class: "cmdk-item", onclick: () => { closeModal(); go("#/programs/" + p.id); } }, icon("shield", 15), p.name));
-      grp("Findings", r.findings, (f) => h("div", { class: "cmdk-item", onclick: () => { closeModal(); go("#/programs/" + f.program_id + "?tab=findings"); } }, icon("bug", 15), f.title));
-      grp("Reports", r.reports, (rp) => h("div", { class: "cmdk-item", onclick: () => { closeModal(); go("#/reports/" + rp.id); } }, icon("file", 15), rp.title));
-      if (!r.programs.length && !r.findings.length && !r.reports.length) results.append(h("div", { style: { padding: "16px", textAlign: "center", color: "var(--faint)" } }, "No results"));
-    }, 160);
-  });
-  openModal(h("div", { class: "modal cmdk", onclick: (e) => e.stopPropagation() },
-    h("div", { class: "cmdk-input" }, icon("search", 18), inp), results));
-  setTimeout(() => inp.focus(), 20);
-}
-
-/* ═══ PROGRAM DETAIL ═══ */
-async function viewProgram(id, query) {
-  const d = await GET("/programs/" + id);
-  if (d.error) return h("div", { class: "page" }, h("div", { class: "empty" }, "Program not found."));
-  const p = d.program;
-  const tab = query.tab || "overview";
-  const setTab = (t) => go("#/programs/" + id + "?tab=" + t);
-  const tabs = [["overview", "Overview"], ["assets", "Assets (" + d.assets.length + ")"], ["checklist", "Checklist"], ["findings", "Findings (" + d.findings.length + ")"], ["reports", "Reports (" + d.reports.length + ")"]];
-  const body = h("div");
-  const render = () => {
-    body.innerHTML = "";
-    if (tab === "overview") body.append(progOverview(d));
-    else if (tab === "assets") body.append(progAssets(d, id));
-    else if (tab === "checklist") body.append(progChecklist(d, id));
-    else if (tab === "findings") body.append(progFindings(d, id));
-    else body.append(progReports(d, id));
-  };
-  render();
-  return page(
-    h("a", { href: "#/programs", class: "row link-accent", style: { marginBottom: "14px" } }, icon("back", 14), "Programs"),
-    h("div", { class: "page-head" },
-      h("div", {},
-        h("div", { class: "row", style: { gap: "9px" } }, p.is_private ? icon("lock", 15) : null, h("span", { class: "h1" }, p.name), p.is_watched ? icon("eye", 15) : null,
-          badge(VIS[p.visibility] ? p.visibility.replace("_", " ") : p.visibility, VIS[p.visibility] || "--info"), staBadge(p.status)),
-        h("div", { class: "sub" }, [p.company, p.platform].filter(Boolean).join(" · "))),
-      h("div", { class: "row" },
-        h("button", { class: "btn", onclick: () => programEditModal(p) }, icon("edit", 14), "Edit"),
-        p.program_url ? h("a", { href: p.program_url, target: "_blank", class: "btn" }, icon("ext", 14), "Open") : null)),
-    h("div", { class: "tabs" }, tabs.map(([t, l]) => h("button", { class: "tab" + (tab === t ? " active" : ""), onclick: () => setTab(t) }, l))),
-    body);
-}
-function progOverview(d) {
-  const p = d.program;
-  const bounty = d.findings.reduce((a, f) => a + (f.bounty || 0), 0);
-  const stat = (l, v) => h("div", { style: { textAlign: "center" } }, h("div", { style: { fontWeight: "700", fontSize: "20px" } }, v), h("div", { class: "faint", style: { fontSize: "11px" } }, l));
-  return h("div", { class: "grid2" },
-    h("div", { class: "stack", style: { gap: "16px" } },
-      h("div", { class: "card pad" },
-        h("div", { class: "row", style: { justifyContent: "space-around" } },
-          stat("Assets", d.assets.length), stat("Subdomains", d.subdomains.length), stat("Findings", d.findings.length), stat("Reports", d.reports.length)),
-        bounty > 0 ? h("div", { style: { marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--border)", textAlign: "center", color: "var(--ok)", fontWeight: "600" } }, money(bounty) + " earned") : null),
-      (p.rules || p.rewards || p.tags) ? h("div", { class: "card pad" },
-        p.rewards ? [h("div", { class: "kicker", style: { marginBottom: "5px" } }, "Rewards"), h("div", { class: "muted", style: { fontSize: "13px", marginBottom: "12px" } }, p.rewards)] : null,
-        p.rules ? [h("div", { class: "kicker", style: { marginBottom: "5px" } }, "Rules"), h("div", { class: "muted", style: { fontSize: "13px", marginBottom: "12px", whiteSpace: "pre-wrap" } }, p.rules)] : null,
-        p.tags ? h("div", { class: "chips" }, p.tags.split(",").filter(Boolean).map((t) => h("span", { class: "chip" }, "#" + t.trim()))) : null) : null,
-      progNotes(p)),
-    h("div", { class: "stack", style: { gap: "16px" } },
-      p.is_private ? h("div", { class: "card pad", style: { borderColor: "color-mix(in srgb, var(--warn) 30%, var(--border))" } },
-        h("div", { class: "kicker row", style: { gap: "5px", color: "var(--warn)", marginBottom: "8px" } }, icon("lock", 11), "Private invitation"),
-        h("div", { class: "stack", style: { gap: "5px", fontSize: "12.5px" } },
-          ["Status:" + (p.invitation_status || "—"), "Source:" + (p.invitation_source || "—")].map((s) => { const [k, v] = s.split(":"); return h("div", { class: "spread" }, h("span", { class: "faint" }, k), h("span", {}, v)); }))) : null,
-      h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Timeline")),
-        h("div", { class: "pad stack", style: { gap: "12px", maxHeight: "400px", overflowY: "auto" } },
-          d.timeline.length ? d.timeline.map((t) => h("div", { class: "row", style: { alignItems: "flex-start", gap: "9px" } },
-            h("span", { class: "dot", style: { background: "var(--accent)", marginTop: "6px" } }),
-            h("div", {}, h("div", { style: { fontSize: "13px" } }, t.title, t.detail ? h("span", { class: "faint" }, " · " + t.detail) : null), h("div", { class: "faint", style: { fontSize: "11px" } }, ago(t.at))))) : h("div", { class: "empty" }, "No events.")))));
-}
-function progNotes(p) {
-  const st = h("span", { class: "save-state" }, "Saved");
-  let t;
-  const ta = textarea({ class: "input mono", rows: 10, value: p.notes || "", placeholder: "# Research notes\n\n- interesting areas\n- accounts\n", oninput: (e) => {
-    st.textContent = "Unsaved…"; clearTimeout(t); t = setTimeout(async () => { st.textContent = "Saving…"; await PATCH("/programs/" + p.id, { notes: e.target.value }); st.textContent = "Saved"; }, 700);
-  } });
-  return h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Research notes"), st), h("div", { class: "pad" }, ta));
-}
-function progAssets(d, pid) {
-  const wrap = h("div", { class: "stack", style: { gap: "10px" } });
-  const reload = () => go("#/programs/" + pid + "?tab=assets");
-  const head = h("div", { class: "spread", style: { marginBottom: "6px" } }, h("div", { class: "muted", style: { fontSize: "13px" } }, d.assets.length + " assets"), h("button", { class: "btn primary sm", onclick: () => assetModal(pid, reload) }, icon("plus", 14), "Add Asset"));
-  const cards = d.assets.length ? d.assets.map((a) => assetCard(a, d.subdomains.filter((s) => s.asset_id === a.id), pid, reload)) : [h("div", { class: "empty" }, "No assets yet.")];
-  wrap.append(head, ...cards);
-  return wrap;
-}
-function assetCard(a, subs, pid, reload) {
-  const live = subs.filter((s) => s.status === "Live" || s.status === "Redirect").length;
-  const detail = h("div", { style: { display: "none" } });
-  let open = false, built = false;
-  const chev = icon("chevR", 15);
-  const toggle = () => { open = !open; detail.style.display = open ? "block" : "none"; chev.style.transform = open ? "rotate(90deg)" : ""; if (open && !built) { buildDetail(); built = true; } };
-  function buildDetail() {
-    const ta = textarea({ class: "input mono", rows: 2, placeholder: "paste subdomains — one per line…" });
-    const list = h("div", { class: "stack", style: { gap: "0" } });
-    const renderSubs = (arr) => { list.innerHTML = ""; if (!arr.length) { list.append(h("div", { class: "faint", style: { fontSize: "12px", padding: "8px 0" } }, "No subdomains yet.")); return; } arr.forEach((s) => list.append(subRow(s, reload))); };
-    renderSubs(subs);
-    detail.append(h("div", { style: { padding: "12px", borderTop: "1px solid var(--border)", background: "var(--panel-2)" } },
-      ta,
-      h("div", { class: "row", style: { marginTop: "8px" } },
-        h("button", { class: "btn primary sm", onclick: async () => { if (!ta.value.trim()) return; await POST("/assets/" + a.id + "/subdomains", { hosts: ta.value }); toast("Subdomains added", "ok"); reload(); } }, icon("plus", 14), "Add"),
-        subs.length ? h("button", { class: "btn sm", id: "probe" + a.id, onclick: async (e) => { e.target.closest("button").textContent = "Probing…"; const r = await POST("/assets/" + a.id + "/subdomains/probe", {}); toast("Probed " + r.probed, "ok"); reload(); } }, icon("radio", 14), "Probe live status") : null),
-      h("div", { style: { marginTop: "10px" } }, list)));
-  }
-  return h("div", { class: "card" },
-    h("div", { class: "row", style: { padding: "13px 15px", gap: "11px" } },
-      h("button", { class: "icon-btn", style: { width: "24px", height: "24px" }, onclick: toggle }, chev),
-      h("div", { style: { flex: "1", minWidth: "0" } },
-        h("div", { class: "row", style: { gap: "8px" } }, h("span", { class: "mono", style: { fontWeight: "600", fontSize: "13px" } }, a.name), badge(a.type, "--blue"), subs.length ? badge(subs.length + " subs" + (live ? " · " + live + " live" : ""), "--info") : null),
-        a.url ? h("div", { class: "faint mono", style: { fontSize: "11px", marginTop: "2px" } }, a.url) : null),
-      h("button", { class: "icon-btn", onclick: () => assetModal(pid, reload, a) }, icon("edit", 14)),
-      h("button", { class: "icon-btn", onclick: async () => { if (await confirmDialog("Delete asset “" + a.name + "” and its subdomains?")) { await DEL("/assets/" + a.id); reload(); } } }, icon("trash", 14))),
-    detail);
-}
-function subRow(s, reload) {
-  return h("div", { class: "row", style: { padding: "7px 2px", borderTop: "1px solid var(--border)", gap: "9px" } },
-    h("span", { class: "dot", style: { background: "var(" + (SUBC[s.status] || "--faint") + ")" } }),
-    h("span", { class: "mono", style: { fontSize: "12px" } }, s.host),
-    s.http_code ? h("span", { class: "chip mono", style: { padding: "1px 6px" } }, s.http_code) : null,
-    s.title ? h("span", { class: "faint", style: { fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: "1" } }, s.title) : h("span", { style: { flex: "1" } }),
-    h("span", { style: { fontSize: "11px", color: "var(" + (SUBC[s.status] || "--faint") + ")" } }, s.status),
-    h("a", { href: "https://" + s.host, target: "_blank", class: "icon-btn", style: { width: "22px", height: "22px" } }, icon("ext", 12)),
-    h("button", { class: "icon-btn", style: { width: "22px", height: "22px" }, onclick: async () => { if (await confirmDialog("Delete subdomain “" + s.host + "”?")) { await DEL("/subdomains/" + s.id); reload(); } } }, icon("trash", 12)));
-}
-function assetModal(pid, reload, existing) {
-  const f = existing ? { host: existing.url || existing.name, type: existing.type, technology: existing.technology || "" } : { hosts: "", type: "Auto", technology: "" };
-  const cleanName = (hh) => hh.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-  const cleanUrl = (hh) => (/^https?:\/\//.test(hh.trim()) ? hh.trim() : "https://" + cleanName(hh));
-  const guess = (hh) => /graphql/i.test(hh) ? "GraphQL" : /(^|\.)api\./i.test(hh) ? "API" : "Web";
-  const body = existing
-    ? h("div", {}, field("Host", input({ value: f.host, oninput: (e) => (f.host = e.target.value) })),
-      h("div", { class: "grid2" }, field("Type", select(["Web", "API", "Android", "iOS", "Cloud", "GraphQL", "WebSocket", "Network", "Repository", "Other"], f.type, { onchange: (e) => (f.type = e.target.value) })), field("Technology", input({ value: f.technology, oninput: (e) => (f.technology = e.target.value) }))))
-    : h("div", {}, field("Hosts (one per line)", textarea({ rows: 4, class: "input mono", oninput: (e) => (f.hosts = e.target.value), placeholder: "app.acme.com\napi.acme.com" })),
-      field("Type", select(["Auto", "Web", "API", "Android", "iOS", "Cloud", "GraphQL", "Other"], "Auto", { onchange: (e) => (f.type = e.target.value) })));
-  openModal(h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
-    h("div", { class: "modal-head" }, h("div", { style: { fontWeight: "600" } }, existing ? "Edit Asset" : "Add Assets"), h("button", { class: "icon-btn", onclick: closeModal }, icon("x"))),
-    h("div", { class: "modal-body" }, body),
-    h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: closeModal }, "Cancel"),
-      h("button", { class: "btn primary", onclick: async () => {
-        if (existing) { await PATCH("/assets/" + existing.id, { name: cleanName(f.host), url: cleanUrl(f.host), type: f.type, technology: f.technology }); }
-        else { const hosts = (f.hosts || "").split(/[\n,]+/).map((x) => x.trim()).filter(Boolean); for (const hh of hosts) await POST("/assets", { program_id: pid, name: cleanName(hh), url: cleanUrl(hh), type: f.type === "Auto" ? guess(hh) : f.type }); }
-        closeModal(); toast("Saved", "ok"); reload();
-      } }, "Save"))));
-}
-async function openReportFor(f, pid, target) {
-  const det = await GET("/findings/" + f.id);
-  if (det.report) return go("#/reports/" + det.report.id);
-  const { id } = await POST("/reports", { title: f.title, program_id: pid || f.program_id, finding_id: f.id, severity: f.severity, body: window.__bbos.reportTemplate(f.title, f.severity, target || "`[asset]`"), folder: "Drafts" });
-  go("#/reports/" + id);
-}
-function findingEditModal(f, reload) {
-  const g = { title: f.title || "", severity: f.severity || "Medium", status: f.status || "Potential", vuln_class: f.vuln_class || "", cvss: f.cvss || "", cwe: f.cwe || "", bounty: f.bounty || 0, observation: f.observation || "" };
-  openModal(h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
-    h("div", { class: "modal-head" }, h("div", { style: { fontWeight: "600" } }, "Edit Finding"), h("button", { class: "icon-btn", onclick: closeModal }, icon("x"))),
-    h("div", { class: "modal-body" },
-      field("Title", input({ value: g.title, oninput: (e) => (g.title = e.target.value), placeholder: "IDOR on /api/orders/:id" })),
-      h("div", { class: "grid2" },
-        field("Severity", select(["Critical", "High", "Medium", "Low", "Informational"], g.severity, { onchange: (e) => (g.severity = e.target.value) })),
-        field("Status", select(["Potential", "Confirmed", "Submitted", "Triaged", "Accepted", "Resolved", "Duplicate", "Rejected"], g.status, { onchange: (e) => (g.status = e.target.value) }))),
-      h("div", { class: "grid2" },
-        field("Vulnerability class", input({ value: g.vuln_class, oninput: (e) => (g.vuln_class = e.target.value), placeholder: "IDOR / SSRF / XSS…" })),
-        field("Bounty (USD)", input({ type: "number", min: "0", value: g.bounty, oninput: (e) => (g.bounty = e.target.value) }))),
-      h("div", { class: "grid2" },
-        field("CVSS", input({ value: g.cvss, oninput: (e) => (g.cvss = e.target.value), placeholder: "7.5" })),
-        field("CWE", input({ value: g.cwe, oninput: (e) => (g.cwe = e.target.value), placeholder: "CWE-639" }))),
-      field("Observation / notes", textarea({ rows: 4, value: g.observation, oninput: (e) => (g.observation = e.target.value), placeholder: "What you saw, where, and why it matters." }))),
-    h("div", { class: "modal-foot" },
-      h("button", { class: "btn", onclick: closeModal }, "Cancel"),
-      h("button", { class: "btn primary", onclick: async () => {
-        if (!g.title.trim()) return toast("Title required", "error");
-        await PATCH("/findings/" + f.id, { title: g.title.trim(), severity: g.severity, status: g.status, vuln_class: g.vuln_class || null, cvss: g.cvss || null, cwe: g.cwe || null, bounty: Number(g.bounty) || 0, observation: g.observation || null });
-        closeModal(); toast("Saved", "ok"); reload();
-      } }, "Save"))));
-}
-function newFindingModal(d, pid, reload) {
-  if (!d.assets.length) return confirmDialog({ title: "Add an asset first", message: "Findings bind to an asset. Add at least one asset before creating a finding.", confirm: "Go to Assets", danger: false }).then((ok) => ok && go("#/programs/" + pid + "?tab=assets"));
-  const targets = [];
-  d.assets.forEach((a) => { targets.push(["a:" + a.id, a.name]); d.subdomains.filter((s) => s.asset_id === a.id).forEach((s) => targets.push(["s:" + s.id, "  ↳ " + s.host])); });
-  const g = { title: "", severity: "Medium", vuln_class: "", target: targets[0][0] };
-  openModal(h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
-    h("div", { class: "modal-head" }, h("div", { style: { fontWeight: "600" } }, "New Finding"), h("button", { class: "icon-btn", onclick: closeModal }, icon("x"))),
-    h("div", { class: "modal-body" },
-      field("Title", input({ oninput: (e) => (g.title = e.target.value), placeholder: "IDOR on /api/orders/:id", autofocus: true })),
-      field("Asset / subdomain", select(targets, g.target, { onchange: (e) => (g.target = e.target.value) })),
-      h("div", { class: "grid2" },
-        field("Severity", select(["Critical", "High", "Medium", "Low", "Informational"], "Medium", { onchange: (e) => (g.severity = e.target.value) })),
-        field("Vulnerability class", input({ oninput: (e) => (g.vuln_class = e.target.value), placeholder: "IDOR" })))),
-    h("div", { class: "modal-foot" },
-      h("button", { class: "btn", onclick: closeModal }, "Cancel"),
-      h("button", { class: "btn primary", onclick: async () => {
-        if (!g.title.trim()) return toast("Title required", "error");
-        const [kind, tid] = g.target.split(":");
-        const aid = kind === "a" ? tid : (d.subdomains.find((s) => s.id === tid) || {}).asset_id;
-        await POST("/findings", { program_id: pid, title: g.title.trim(), severity: g.severity, status: "Potential", vuln_class: g.vuln_class || null, asset_id: aid || null, subdomain_id: kind === "s" ? tid : null });
-        closeModal(); toast("Finding added", "ok"); reload();
-      } }, "Create"))));
-}
-function progFindings(d, pid) {
-  const reload = () => go("#/programs/" + pid + "?tab=findings");
-  const rows = d.findings.map((f) => {
-    const asset = d.assets.find((a) => a.id === f.asset_id);
-    const target = f.subdomain_host || (asset && asset.name);
-    return h("div", { class: "card row", style: { padding: "11px 14px", gap: "12px" } },
-      sevBadge(f.severity),
-      h("div", { class: "row", style: { flex: "1", minWidth: "0", cursor: "pointer", gap: "8px" }, title: "Edit finding", onclick: () => findingEditModal(f, reload) }, h("span", { style: { fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, f.title), target ? h("span", { class: "faint mono", style: { fontSize: "11px" } }, target) : null),
-      f.bounty > 0 ? h("span", { style: { color: "var(--ok)", fontWeight: "600", fontSize: "13px" } }, money(f.bounty)) : null,
-      select(["Potential", "Confirmed", "Submitted", "Triaged", "Accepted", "Resolved", "Duplicate", "Rejected"], f.status, { style: { width: "140px" }, onchange: (e) => PATCH("/findings/" + f.id, { status: e.target.value }) }),
-      h("button", { class: "icon-btn", title: "Edit finding", onclick: () => findingEditModal(f, reload) }, icon("edit", 15)),
-      h("button", { class: "icon-btn", title: "Open report", onclick: () => openReportFor(f, pid, target) }, icon("file", 15)),
-      h("button", { class: "icon-btn", title: "Delete finding", onclick: async () => { if (await confirmDialog("Delete finding “" + f.title + "”?")) { await DEL("/findings/" + f.id); reload(); } } }, icon("trash", 15)));
-  });
-  return h("div", { class: "stack", style: { gap: "10px" } },
-    h("div", { class: "spread", style: { marginBottom: "6px" } }, h("div", { class: "muted", style: { fontSize: "13px" } }, d.findings.length + " findings"), h("button", { class: "btn primary sm", onclick: () => newFindingModal(d, pid, reload) }, icon("plus", 14), "New Finding")),
-    d.findings.length ? rows : [h("div", { class: "empty" }, "No findings yet. New Finding binds to an asset — set its title, severity and bounty inline.")]);
-}
-function progReports(d, pid) {
-  const reload = () => go("#/programs/" + pid + "?tab=reports");
-  return d.reports.length ? h("div", { class: "grid3" }, d.reports.map((r) => reportCard(r, reload))) : h("div", { class: "empty" }, "No reports.");
-}
-function progChecklist(d, pid) {
-  const T = window.CHECKLIST_TEMPLATE;
-  const root = h("div", { class: "stack", style: { gap: "14px" } });
-  if (!T || !T.parts) { root.append(h("div", { class: "empty" }, "Checklist template failed to load.")); return root; }
-  const scopes = d.assets.length ? d.assets.map((a) => ({ id: a.id, label: a.name, type: a.type })) : [{ id: "program", label: "Program-wide", type: "" }];
-  const total = T.totalItems;
-  const checked = new Set();
-  const openParts = {}; openParts[T.parts[0].id] = true;
-  const openItems = {};
-  let activeScope = scopes[0].id;
-  const isChecked = (sc, key) => checked.has(sc + ":" + key);
-  const scopeDone = (sc) => T.parts.reduce((a, p) => a + p.items.filter((i) => isChecked(sc, i.key)).length, 0);
-  const bar = (frac) => h("div", { style: { flex: "1", height: "8px", background: "var(--panel-2)", borderRadius: "999px", overflow: "hidden" } },
-    h("div", { style: { width: Math.round(frac * 100) + "%", height: "100%", background: "var(--accent)", borderRadius: "999px", transition: "width .2s" } }));
-  const toggle = async (key) => {
-    const next = !isChecked(activeScope, key);
-    if (next) checked.add(activeScope + ":" + key); else checked.delete(activeScope + ":" + key);
-    rebuild();
-    try { await POST("/programs/" + pid + "/checklist", { scope: activeScope, item_key: key, checked: next }); }
-    catch { toast("Save failed", "error"); if (next) checked.delete(activeScope + ":" + key); else checked.add(activeScope + ":" + key); rebuild(); }
-  };
-  function rebuild() {
-    root.innerHTML = "";
-    const overallDone = scopes.reduce((a, s) => a + scopeDone(s.id), 0);
-    const overallTotal = total * scopes.length;
-    root.append(h("div", { class: "card pad" },
-      h("div", { class: "spread", style: { marginBottom: "10px" } },
-        h("div", { class: "kicker row", style: { gap: "6px" } }, icon("list", 13), "Checklist progress"),
-        h("div", { class: "faint", style: { fontSize: "12px" } }, T.parts.length + " parts · " + total + " test areas per scope")),
-      h("div", { class: "row", style: { gap: "12px" } },
-        bar(overallTotal ? overallDone / overallTotal : 0),
-        h("span", { class: "tnum", style: { fontWeight: "600" } }, overallDone + "/" + overallTotal),
-        h("span", { class: "faint", style: { fontSize: "12px" } }, "(" + (overallTotal ? Math.round(overallDone / overallTotal * 100) : 0) + "%)"))));
-    if (!d.assets.length) root.append(h("div", { class: "card pad spread", style: { borderColor: "color-mix(in srgb, var(--warn) 30%, var(--border))" } },
-      h("span", { class: "muted", style: { fontSize: "13px" } }, "Add in-scope assets to get a dedicated checklist per scope target."),
-      h("a", { href: "#/programs/" + pid + "?tab=assets", class: "btn sm" }, icon("boxes", 13), "Add Assets")));
-    root.append(h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap" } }, scopes.map((s) =>
-      h("button", { class: "btn sm" + (s.id === activeScope ? " primary" : ""), onclick: () => { activeScope = s.id; rebuild(); } },
-        s.type ? badge(s.type, "--blue") : null, s.label, h("span", { style: { opacity: ".7", fontSize: "11px" } }, " " + scopeDone(s.id) + "/" + total)))));
-    const done = scopeDone(activeScope);
-    root.append(h("div", { class: "row", style: { gap: "12px" } }, bar(total ? done / total : 0), h("span", { class: "tnum faint", style: { fontSize: "12px" } }, done + "/" + total + " · " + Math.round((total ? done / total : 0) * 100) + "%")));
-    T.parts.forEach((p) => {
-      const partDone = p.items.filter((i) => isChecked(activeScope, i.key)).length;
-      const openP = !!openParts[p.id];
-      const chev = icon("chevR", 14); if (openP) chev.style.transform = "rotate(90deg)";
-      const card = h("div", { class: "card" },
-        h("button", { class: "row", style: { width: "100%", padding: "11px 14px", gap: "10px", textAlign: "left" }, onclick: () => { openParts[p.id] = !openP; rebuild(); } },
-          chev, h("span", { style: { fontWeight: "600", fontSize: "13px", flex: "1" } }, p.title),
-          h("span", { class: "faint tnum", style: { fontSize: "12px" } }, partDone + "/" + p.items.length)));
-      if (openP) p.items.forEach((it) => {
-        const on = isChecked(activeScope, it.key);
-        const openI = !!openItems[it.key];
-        const ichev = icon("chevD", 14); ichev.style.opacity = ".5"; if (openI) ichev.style.transform = "rotate(180deg)";
-        card.append(h("div", { style: { borderTop: "1px solid var(--border)" } },
-          h("div", { class: "row", style: { padding: "9px 14px", gap: "11px", alignItems: "flex-start" } },
-            h("button", { class: "check" + (on ? " on" : ""), title: on ? "Uncheck" : "Mark done", onclick: () => toggle(it.key) }, on ? icon("check", 12) : null),
-            h("div", { style: { flex: "1", minWidth: "0", cursor: "pointer" }, onclick: () => { openItems[it.key] = !openI; rebuild(); } },
-              h("div", { class: "row", style: { gap: "8px" } }, h("span", { class: "mono faint", style: { fontSize: "11px" } }, "#" + it.num),
-                h("span", { style: { fontSize: "13px", textDecoration: on ? "line-through" : "none", opacity: on ? ".55" : "1" } }, it.title)),
-              openI ? h("div", { class: "md", style: { marginTop: "8px", fontSize: "12.5px" }, html: mdToHtml(it.body) }) : null),
-            ichev)));
+  // ── custom themed dropdown ─────────────────────────────────────────────────
+  // Native <select> option popups are OS-rendered and can't be themed (they show
+  // up white/blue over our dark UI). We keep the real <select> for state + events
+  // + tests, hide it, and drive it from a fully-styled trigger + menu.
+  const _DOWN_CARET = '<svg class="sel-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+  function enhanceSelects(root) {
+    $$('select.inp:not([data-enh]), select.prog-switch:not([data-enh])', root || document).forEach((sel) => {
+      sel.dataset.enh = '1';
+      const wrap = document.createElement('div');
+      wrap.className = 'sel' + (sel.classList.contains('pf-status') ? ' sel-sm' : '') + (sel.classList.contains('prog-switch') ? ' sel-bare' : '');
+      sel.parentNode.insertBefore(wrap, sel);
+      wrap.appendChild(sel);
+      const trg = document.createElement('button');
+      trg.type = 'button';
+      trg.className = 'sel-trg';
+      trg.disabled = !!sel.disabled;
+      if (sel.id) trg.dataset.for = sel.id;
+      trg.innerHTML = '<span class="sel-val"></span>' + _DOWN_CARET;
+      const menu = document.createElement('div');
+      menu.className = 'sel-menu';
+      Array.from(sel.options).forEach((o) => {
+        const it = document.createElement('button');
+        it.type = 'button';
+        it.className = 'sel-opt';
+        it.dataset.value = o.value;
+        it.textContent = o.textContent;
+        it.onclick = (e) => {
+          e.stopPropagation();
+          if (sel.value !== o.value) { sel.value = o.value; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+          sync(); close();
+        };
+        menu.appendChild(it);
       });
-      root.append(card);
+      wrap.appendChild(trg);
+      wrap.appendChild(menu); // starts inside the wrapper; portaled to <body> while open
+      const valEl = $('.sel-val', trg);
+      const sync = () => {
+        const o = sel.options[sel.selectedIndex];
+        valEl.textContent = o ? o.textContent : '';
+        $$('.sel-opt', menu).forEach((c) => c.classList.toggle('on', c.dataset.value === sel.value));
+      };
+      const close = () => {
+        wrap.classList.remove('open');
+        menu.classList.remove('open');
+        if (menu.parentNode !== wrap) wrap.appendChild(menu); // bring it home so it's cleaned up on re-render
+      };
+      const place = () => {
+        const r = trg.getBoundingClientRect();
+        menu.style.left = r.left + 'px';
+        menu.style.right = 'auto';
+        menu.style.width = wrap.classList.contains('sel-bare') ? 'auto' : r.width + 'px';
+        const mh = menu.offsetHeight;
+        const below = r.bottom + 6, above = r.top - 6 - mh;
+        menu.style.top = (below + mh > window.innerHeight - 4 && above > 4 ? above : below) + 'px';
+      };
+      const open = () => {
+        closeAllSels();
+        // portal to <body> so no ancestor overflow/stacking context can clip or cover it
+        document.body.appendChild(menu);
+        wrap.classList.add('open');
+        menu.classList.add('open');
+        place();
+        const on = $('.sel-opt.on', menu);
+        if (on) on.scrollIntoView({ block: 'nearest' });
+      };
+      wrap._close = close;
+      trg.onclick = (e) => { e.stopPropagation(); if (sel.disabled) return; menu.classList.contains('open') ? close() : open(); };
+      sel.addEventListener('change', sync);
+      sync();
     });
   }
-  root.append(h("div", { class: "empty" }, "Loading checklist…"));
-  GET("/programs/" + pid + "/checklist").then((r) => { (r || []).forEach((row) => { if (row.checked) checked.add(row.scope + ":" + row.item_key); }); rebuild(); }).catch(() => rebuild());
-  return root;
-}
-function programEditModal(p) {
-  const f = Object.assign({}, p);
-  const body = h("div", {},
-    h("div", { class: "grid2" },
-      field("Name", input({ value: f.name, oninput: (e) => (f.name = e.target.value) })),
-      field("Company", input({ value: f.company || "", oninput: (e) => (f.company = e.target.value) })),
-      field("Platform", select(["HackerOne", "Bugcrowd", "Intigriti", "YesWeHack", "Immunefi", "Private", "Other"], f.platform, { onchange: (e) => (f.platform = e.target.value) })),
-      field("Visibility", select(Object.keys(VIS).map((v) => [v, v.replace("_", " ")]), f.visibility, { onchange: (e) => (f.visibility = e.target.value) })),
-      field("Status", select(["Active", "Paused", "Archived", "Closed", "Expired"], f.status, { onchange: (e) => (f.status = e.target.value) })),
-      field("Program URL", input({ value: f.program_url || "", oninput: (e) => (f.program_url = e.target.value) }))),
-    field("Rewards", input({ value: f.rewards || "", oninput: (e) => (f.rewards = e.target.value) })),
-    field("Rules", textarea({ rows: 2, value: f.rules || "", oninput: (e) => (f.rules = e.target.value) })),
-    field("Tags (comma)", input({ value: f.tags || "", oninput: (e) => (f.tags = e.target.value) })));
-  openModal(h("div", { class: "modal", onclick: (e) => e.stopPropagation() },
-    h("div", { class: "modal-head" }, h("div", { style: { fontWeight: "600" } }, "Edit Program"), h("button", { class: "icon-btn", onclick: closeModal }, icon("x"))),
-    h("div", { class: "modal-body" }, body,
-      h("label", { class: "row", style: { fontSize: "13px", color: "var(--muted)", cursor: "pointer" } }, h("input", { type: "checkbox", checked: f.is_watched ? true : null, onchange: (e) => (f.is_watched = e.target.checked) }), "Watch this program")),
-    h("div", { class: "modal-foot" },
-      h("button", { class: "btn danger", style: { marginRight: "auto" }, onclick: async () => { if (await confirmDialog("Delete program “" + p.name + "” and ALL its data?")) { await DEL("/programs/" + p.id); closeModal(); go("#/programs"); } } }, icon("trash", 14), "Delete"),
-      h("button", { class: "btn", onclick: closeModal }, "Cancel"),
-      h("button", { class: "btn primary", onclick: async () => { await PATCH("/programs/" + p.id, f); closeModal(); toast("Saved", "ok"); go("#/programs/" + p.id); } }, "Save"))));
-}
+  function closeAllSels() { $$('.sel.open').forEach((s) => s._close && s._close()); }
+  let _enhancing = false;
+  const runEnhance = () => { if (_enhancing) return; _enhancing = true; try { enhanceSelects(document); } finally { _enhancing = false; } };
 
-/* ═══ FINDINGS ═══ */
-async function viewFindings(_, query) {
-  const qs = new URLSearchParams(); for (const k of ["severity", "status", "vuln_class"]) if (query[k]) qs.set(k, query[k]);
-  const list = await GET("/findings?" + qs);
-  const setF = (k, v) => { const q = Object.assign({}, query); v ? (q[k] = v) : delete q[k]; go("#/findings?" + new URLSearchParams(q)); };
-  return page(
-    h("div", { class: "page-head" }, h("div", {}, h("div", { class: "h1" }, "Findings"), h("div", { class: "sub" }, list.length + " findings"))),
-    h("div", { class: "row", style: { gap: "8px", marginBottom: "16px" } },
-      select([["", "All severities"], "Critical", "High", "Medium", "Low", "Informational"], query.severity || "", { style: { width: "160px" }, onchange: (e) => setF("severity", e.target.value) }),
-      select([["", "All statuses"], "Potential", "Confirmed", "Submitted", "Triaged", "Accepted", "Resolved", "Duplicate", "Rejected"], query.status || "", { style: { width: "160px" }, onchange: (e) => setF("status", e.target.value) })),
-    list.length ? h("div", { class: "card" }, h("table", { class: "table" },
-      h("thead", {}, h("tr", {}, ["Severity", "Title", "Class", "Program", "Status", "Bounty", ""].map((t) => h("th", {}, t)))),
-      h("tbody", {}, list.map((f) => h("tr", { class: "clickable", title: "Edit finding", onclick: () => findingEditModal(f, navigate) },
-        h("td", {}, sevBadge(f.severity)),
-        h("td", { style: { fontWeight: "500" } }, f.title),
-        h("td", { class: "muted" }, f.vuln_class || "—"),
-        h("td", { class: "muted" }, f.is_private ? [icon("lock", 11), " "] : null, f.program_name),
-        h("td", {}, staBadge(f.status)),
-        h("td", { style: { textAlign: "right" } }, f.bounty > 0 ? h("span", { style: { color: "var(--ok)", fontWeight: "600" } }, money(f.bounty)) : h("span", { class: "faint" }, "—")),
-        h("td", { style: { textAlign: "right", width: "1%", whiteSpace: "nowrap" } },
-          h("button", { class: "icon-btn", title: "Open report", onclick: (e) => { e.stopPropagation(); openReportFor(f, f.program_id, f.subdomain_host || f.asset_name); } }, icon("file", 15)),
-          h("button", { class: "icon-btn", title: "Delete finding", onclick: async (e) => { e.stopPropagation(); if (await confirmDialog("Delete finding “" + f.title + "”?")) { await DEL("/findings/" + f.id); navigate(); } } }, icon("trash", 15)))))))) : h("div", { class: "empty" }, "No findings match."));
-}
+  // ── API ───────────────────────────────────────────────────────────────────
+  async function api(method, path, body) {
+    const opt = { method, headers: {} };
+    if (body !== undefined) {
+      opt.headers['Content-Type'] = 'application/json';
+      opt.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, opt);
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
+    if (!res.ok) {
+      const msg = (data && data.error) || (typeof data === 'string' && data) || ('HTTP ' + res.status);
+      throw new Error(msg);
+    }
+    return data;
+  }
+  const GET = (p) => api('GET', p);
+  const POST = (p, b) => api('POST', p, b || {});
+  const PATCH = (p, b) => api('PATCH', p, b || {});
+  const DEL = (p) => api('DELETE', p);
 
-/* ═══ REPORTS ═══ */
-async function viewReports(_, query) {
-  const folder = query.folder || (query.favorite === "1" ? "Favorites" : "All");
-  const qs = new URLSearchParams(); if (folder !== "All" && folder !== "Favorites") qs.set("folder", folder);
-  if (folder === "Favorites") qs.set("favorite", "1"); if (query.status) qs.set("status", query.status);
-  const list = await GET("/reports?" + qs);
-  const newReport = async () => { const { id } = await POST("/reports", { title: "Untitled Report", body: "# Untitled Report\n\n## Summary\n\n" }); go("#/reports/" + id); };
-  const FOLDERS = ["All", "Drafts", "Submitted", "Accepted", "Resolved", "Archived", "Favorites"];
-  return page(
-    h("div", { class: "page-head" }, h("div", {}, h("div", { class: "h1" }, "Reports"), h("div", { class: "sub" }, list.length + " reports")), h("button", { class: "btn primary", onclick: newReport }, icon("plus", 15), "New Report")),
-    h("div", { class: "pill-tabs", style: { marginBottom: "18px", flexWrap: "wrap" } }, FOLDERS.map((f) => h("button", { class: folder === f ? "active" : "", onclick: () => go(f === "All" ? "#/reports" : f === "Favorites" ? "#/reports?favorite=1" : "#/reports?folder=" + f) }, f))),
-    list.length ? h("div", { class: "grid3" }, list.map((r) => reportCard(r, navigate))) : h("div", { class: "empty" }, "No reports here yet."));
-}
-function reportCard(r, reload) {
-  return h("div", { class: "card hover-card", style: { padding: "15px" } },
-    h("div", { class: "spread" },
-      h("a", { href: "#/reports/" + r.id, class: "row", style: { gap: "6px", minWidth: "0", fontWeight: "600" } }, r.is_favorite ? h("span", { style: { color: "var(--warn)" } }, icon("star", 13)) : null, h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.title)),
-      h("div", { class: "row", style: { gap: "2px" } },
-        h("button", { class: "icon-btn", title: "Clone", onclick: async () => { const c = await POST("/reports/" + r.id + "/clone"); go("#/reports/" + c.id); } }, icon("copy", 14)),
-        h("button", { class: "icon-btn", onclick: async () => { if (await confirmDialog("Delete report “" + r.title + "”?")) { await DEL("/reports/" + r.id); reload(); } } }, icon("trash", 14)))),
-    h("div", { class: "faint", style: { fontSize: "11.5px", marginTop: "3px" } }, r.program_name || "No program"),
-    h("div", { class: "row", style: { marginTop: "11px", gap: "8px" } }, staBadge(r.status), r.severity ? h("span", { class: "faint", style: { fontSize: "11.5px" } }, r.severity) : null, h("span", { class: "faint", style: { marginLeft: "auto", fontSize: "11px" } }, r.word_count + "w · " + ago(r.updated_at))));
-}
+  // ── formatting ──────────────────────────────────────────────────────────
+  function money(v, sym) {
+    sym = sym || '$';
+    const n = Math.round(Number(v) || 0);
+    return sym + n.toLocaleString('en-US');
+  }
+  function kmoney(v, sym) {
+    sym = sym || '$';
+    const n = Number(v) || 0;
+    if (n >= 1000) return sym + (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + 'k';
+    return sym + Math.round(n);
+  }
+  function timeAgo(iso) {
+    if (!iso) return '';
+    const then = new Date(iso).getTime();
+    if (isNaN(then)) return '';
+    const s = Math.max(0, (Date.now() - then) / 1000);
+    if (s < 60) return Math.floor(s) + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    if (s < 86400) return Math.floor(s / 3600) + 'h';
+    if (s < 86400 * 30) return Math.floor(s / 86400) + 'd';
+    if (s < 86400 * 365) return Math.floor(s / 86400 / 30) + 'mo';
+    return Math.floor(s / 86400 / 365) + 'y';
+  }
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d)) return '—';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function monthLabel(m) {
+    if (!m) return '';
+    const [y, mo] = m.split('-');
+    const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return (names[parseInt(mo, 10) - 1] || m) + " '" + (y || '').slice(2);
+  }
+  function initials(name) {
+    if (!name) return '?';
+    const p = name.replace(/[^A-Za-z0-9 ]/g, ' ').trim().split(/\s+/);
+    if (p.length === 1) return p[0].slice(0, 2).toUpperCase();
+    return (p[0][0] + p[1][0]).toUpperCase();
+  }
+  function debounce(fn, ms) {
+    let t;
+    return function () { clearTimeout(t); const a = arguments, c = this; t = setTimeout(() => fn.apply(c, a), ms); };
+  }
+  // restart a brief fade/rise on a container after its innerHTML is swapped (in-place re-renders)
+  function animateIn(el, ms) {
+    if (!el) return;
+    el.style.animation = 'none'; void el.offsetWidth;
+    el.style.animation = 'viewin ' + (ms || 200) + 'ms cubic-bezier(.22,.61,.36,1)';
+  }
 
-/* ═══ REPORT EDITOR ═══ */
-function redact(s) {
-  return (s || "").replace(/eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}/g, "[REDACTED-JWT]")
-    .replace(/Bearer\s+(?!\[REDACTED)[\w.\-]{16,}/g, "Bearer [REDACTED]")
-    .replace(/AKIA[0-9A-Z]{16}/g, "[REDACTED-AWS-KEY]");
-}
-window.__bbos.reportTemplate = function (title, sev, target) {
-  return "# " + title + "\n\n## Summary\n\nA concise, impact-first description of the vulnerability.\n\n## Affected Asset\n\n" + target +
-    "\n\n## Severity\n\n" + sev + "\n\n## Steps to Reproduce\n\n1. \n2. \n3. \n\n## Proof of Concept\n\n```http\nGET /path HTTP/2\nHost: example.com\nAuthorization: Bearer [REDACTED]\n```\n\n## Impact\n\n\n\n## Remediation\n\n\n\n## References\n";
-};
-async function viewReportEditor(id) {
-  const { report: r } = await GET("/reports/" + id);
-  if (!r) return h("div", { class: "page" }, h("div", { class: "empty" }, "Report not found."));
-  const programs = await GET("/programs");
-  const st = h("span", { class: "save-state" }, icon("check", 12), "Saved");
-  let content = r.body || "", title = r.title || "";
-  const preview = h("div", { class: "md" });
-  const renderPrev = () => (preview.innerHTML = mdToHtml(content));
-  renderPrev();
-  let timer;
-  const save = () => { st.innerHTML = ""; st.append(document.createTextNode("Saving…")); clearTimeout(timer); timer = setTimeout(async () => { await PATCH("/reports/" + id, { body: content, title }); st.innerHTML = ""; st.append(icon("check", 12), document.createTextNode("Saved")); }, 700); };
-  const ta = h("textarea", { class: "editor-ta", spellcheck: "false" }); ta.value = content;
-  ta.addEventListener("input", () => { content = ta.value; renderPrev(); save(); });
-  const titleInp = h("input", { class: "editor-title", value: title }); titleInp.addEventListener("input", () => { title = titleInp.value; save(); });
-  const exportAs = (fmt) => {
-    const clean = redact(content);
-    const data = fmt === "md" ? clean : "<!doctype html><meta charset=utf-8><title>" + title + "</title><style>body{font-family:system-ui;max-width:820px;margin:2rem auto;padding:0 1.5rem;line-height:1.6}pre{background:#f5f5f5;padding:1rem;border-radius:8px}code{font-family:monospace}</style>" + mdToHtml(clean);
-    const blob = new Blob([data], { type: fmt === "md" ? "text/markdown" : "text/html" });
-    const a = h("a", { href: URL.createObjectURL(blob), download: title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + "." + fmt }); a.click();
+  const SEV_ORDER = ['Critical', 'High', 'Medium', 'Low', 'Info'];
+  const SEV_COLOR = { Critical: '#bf616a', High: '#d08770', Medium: '#ebcb8b', Low: '#88c0d0', Info: '#6e7891' };
+  const PLATFORM_COLOR = {
+    HackerOne: '#a78bfa', Bugcrowd: '#88c0d0', Intigriti: '#ebcb8b', YesWeHack: '#b48ead',
+    Synack: '#d3868d', Immunefi: '#c9bafd', Private: '#9aa4bb', 'VDP / Direct': '#9aa4bb'
   };
-  return h("div", { class: "editor" },
-    h("div", { class: "editor-bar" },
-      h("a", { href: "#/reports", class: "icon-btn" }, icon("back")),
-      titleInp, st,
-      h("div", { style: { width: "1px", height: "20px", background: "var(--border)" } }),
-      h("span", { class: "faint", style: { fontSize: "12px" } }, "Status"),
-      select(["Draft", "In Progress", "Ready", "Submitted", "Accepted", "Resolved", "Rejected", "Archived"], r.status, { style: { width: "130px" }, onchange: (e) => PATCH("/reports/" + id, { status: e.target.value }) }),
-      h("span", { class: "faint", style: { fontSize: "12px" } }, "Severity"),
-      select(["Critical", "High", "Medium", "Low", "Informational"], r.severity || "Medium", { style: { width: "120px" }, onchange: (e) => PATCH("/reports/" + id, { severity: e.target.value }) }),
-      h("span", { class: "faint", style: { fontSize: "12px" } }, "Program"),
-      select([["", "No program"], ...programs.map((p) => [p.id, p.name])], r.program_id || "", { style: { width: "150px" }, onchange: (e) => PATCH("/reports/" + id, { program_id: e.target.value || null }) }),
-      h("div", { style: { marginLeft: "auto" }, class: "row" },
-        h("button", { class: "btn danger sm", onclick: async () => { if (await confirmDialog("Delete report “" + title + "”?")) { await DEL("/reports/" + id); go("#/reports"); } } }, icon("trash", 14), "Delete"),
-        h("button", { class: "btn sm", onclick: () => exportAs("md") }, icon("download", 14), "MD"),
-        h("button", { class: "btn primary sm", onclick: () => exportAs("html") }, icon("download", 14), "HTML"))),
-    h("div", { class: "editor-split" },
-      h("div", { class: "editor-pane write" }, ta),
-      h("div", { class: "editor-pane" }, h("div", { class: "editor-preview" }, preview))));
-}
+  const platColor = (p) => PLATFORM_COLOR[p] || '#9aa4bb';
+  const stClass = (s) => 'st-' + String(s || 'Potential').replace(/\s+/g, '');
+  const FINDING_STATUSES = ['Potential', 'Confirmed', 'Submitted', 'Triaged', 'Accepted', 'Resolved'];
 
-/* ═══ ANALYTICS ═══ */
-async function viewAnalytics(_, query) {
-  const programs = await GET("/programs");
-  const a = await GET("/analytics" + (query.program_id ? "?program_id=" + query.program_id : ""));
-  const months = [...new Set(a.reports_time.map((r) => r.month))].sort();
-  const statuses = [...new Set(a.reports_time.map((r) => r.status))];
-  const PAL = ["--accent", "--ok", "--warn", "--blue", "--crit", "--violet"];
-  const chartCard = (title, node) => h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", { class: "card-title" }, title)), h("div", { class: "pad" }, node));
-  return page(
-    h("div", { class: "page-head" },
-      h("div", {}, h("div", { class: "h1" }, "Analytics"), h("div", { class: "sub" }, "Descriptive — no rankings, just your data.")),
-      select([["", "All programs"], ...programs.map((p) => [p.id, p.name])], query.program_id || "", { style: { width: "200px" }, onchange: (e) => go("#/analytics" + (e.target.value ? "?program_id=" + e.target.value : "")) })),
-    h("div", { class: "grid2" },
-      chartCard("Bounty over time", a.bounty.length ? h("div", {},
-        lineMulti(a.bounty.map((b) => b.month), [{ name: "Bounty", color: "var(--ok)", data: a.bounty.map((b) => b.bounty) }]),
-        h("div", { class: "row", style: { marginTop: "10px", gap: "16px", flexWrap: "wrap" } }, a.bounty.map((b) => h("div", {}, h("div", { class: "faint", style: { fontSize: "11px" } }, b.month), h("div", { style: { fontWeight: "600", color: "var(--ok)" } }, money(b.bounty)))))) : h("div", { class: "empty" }, "No data")),
-      chartCard("Reports over time", months.length ? h("div", {}, lineMulti(months, statuses.map((s, i) => ({ name: s, color: "var(" + PAL[i % PAL.length] + ")", data: months.map((m) => { const r = a.reports_time.find((x) => x.month === m && x.status === s); return r ? r.c : 0; }) }))),
-        h("div", { class: "chips", style: { marginTop: "10px" } }, statuses.map((s, i) => h("span", { class: "row", style: { gap: "5px", fontSize: "11.5px" } }, h("span", { class: "dot", style: { background: "var(" + PAL[i % PAL.length] + ")" } }), s)))) : h("div", { class: "empty" }, "No data"))),
-    h("div", { class: "grid2", style: { marginTop: "16px" } },
-      chartCard("Findings by severity", a.by_severity.length ? h("div", { class: "row", style: { gap: "18px" } }, donut(a.by_severity.map((s) => ({ value: s.value, color: sevVar(s.name) }))),
-        h("div", { class: "stack", style: { gap: "5px", flex: "1" } }, a.by_severity.map((s) => h("div", { class: "row" }, h("span", { class: "dot", style: { background: sevVar(s.name) } }), h("span", { class: "muted", style: { fontSize: "12.5px" } }, s.name), h("span", { style: { marginLeft: "auto", fontWeight: "600" } }, s.value))))) : h("div", { class: "empty" }, "No data")),
-      chartCard("Vulnerability class", a.by_class.length ? hbars(a.by_class, "var(--accent)") : h("div", { class: "empty" }, "No data"))),
-    h("div", { class: "grid2", style: { marginTop: "16px" } },
-      chartCard("Status funnel", hbars(a.funnel, "var(--violet)")),
-      chartCard("Bounty by program", h("table", { class: "table" }, h("tbody", {}, a.by_program.map((p) => h("tr", {}, h("td", { style: { fontWeight: "500" } }, p.name), h("td", { class: "tnum muted", style: { textAlign: "right" } }, p.findings + " findings"), h("td", { class: "tnum", style: { textAlign: "right", color: "var(--ok)", fontWeight: "600" } }, money(p.total)))))))));
-}
+  // ── icons ─────────────────────────────────────────────────────────────────
+  const I = {
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    close: '<path d="M6 6l12 12M18 6 6 18"/>',
+    star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/>',
+    shield: '<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/>',
+    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    activity: '<path d="M2 12h4l3-8 6 16 3-8h4"/>',
+    chevron: '<path d="m9 6 6 6-6 6"/>',
+    check: '<path d="M5 12l5 5L20 7"/>',
+    dashboard: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+    programs: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>',
+    assets: '<path d="M4 7l8-4 8 4-8 4z"/><path d="M4 12l8 4 8-4"/><path d="M4 17l8 4 8-4"/>',
+    checklist: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="m4 6 1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/>',
+    findings: '<path d="M12 2 3 6v6c0 5 3.8 9 9 10 5.2-1 9-5 9-10V6z"/><path d="M12 8v4M12 15v.5"/>',
+    reports: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
+    analytics: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+    trash: '<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
+    edit: '<path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17z"/>',
+    keyboard: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 3 2.5 15 0 18M12 3c-2.5 3-2.5 15 0 18"/>',
+    arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>',
+    download: '<path d="M12 4v11M8 11l4 4 4-4M5 20h14"/>',
+    logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"/>',
+  };
+  function svg(name, size, opts) {
+    opts = opts || {};
+    const s = size || 14;
+    const fill = opts.fill || 'none';
+    const sw = opts.sw || 2;
+    return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${I[name] || ''}</svg>`;
+  }
 
-/* ── boot ── */
-window.addEventListener("hashchange", navigate);
-document.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openSearch(); }
-});
-buildShell();
-if (!location.hash) location.hash = "#/";
-navigate();
+  // ── toast + confirm ─────────────────────────────────────────────────────
+  function toast(msg, kind) {
+    const t = document.createElement('div');
+    t.className = 'toast ' + (kind || '');
+    t.innerHTML = (kind === 'err' ? svg('close', 15) : kind === 'info' ? svg('activity', 15) : svg('check', 15)) +
+      '<span>' + esc(msg) + '</span>';
+    $('#toasts').appendChild(t);
+    setTimeout(() => { t.style.transition = 'opacity .3s, transform .3s'; t.style.opacity = '0'; t.style.transform = 'translateX(12px)'; setTimeout(() => t.remove(), 300); }, 2800);
+  }
+
+  function confirmDialog(opts) {
+    return new Promise((resolve) => {
+      const o = overlay();
+      o.innerHTML = `
+        <div class="modal" data-cd>
+          <div class="modal-box" style="width:420px">
+            <div class="modal-h"><h3>${esc(opts.title || 'Are you sure?')}</h3></div>
+            <div class="modal-body"><p class="muted" style="font-size:13px;line-height:1.6">${esc(opts.body || '')}</p></div>
+            <div class="modal-foot">
+              <button class="btn" data-no>Cancel</button>
+              <button class="btn ${opts.danger ? 'danger' : 'primary'}" data-yes>${esc(opts.confirm || 'Confirm')}</button>
+            </div>
+          </div>
+        </div>`;
+      const close = (v) => { o.innerHTML = ''; resolve(v); };
+      $('[data-no]', o).onclick = () => close(false);
+      $('[data-yes]', o).onclick = () => close(true);
+      $('[data-cd]', o).onclick = (e) => { if (e.target.hasAttribute('data-cd')) close(false); };
+      $('[data-yes]', o).focus();
+    });
+  }
+
+  // ── minimal markdown → html ───────────────────────────────────────────────
+  function md(src) {
+    if (!src) return '<p class="muted">Nothing here yet.</p>';
+    const lines = String(src).replace(/\r\n/g, '\n').split('\n');
+    let out = '', i = 0;
+    const inline = (t) => esc(t)
+      .replace(/`([^`]+)`/g, (m, c) => '<code>' + c + '</code>')
+      // ![alt](url) → image, or a <video> when the URL is a video file
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (m, alt, href) => /\.(mp4|mkv|webm|mov|m4v|ogg)(\?|$)/i.test(href)
+        ? '<video controls src="' + esc(href) + '" class="md-media"></video>'
+        : '<img src="' + esc(href) + '" alt="' + esc(alt) + '" class="md-media" loading="lazy">')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, txt, href) => '<a href="' + esc(href) + '" target="_blank" rel="noopener">' + txt + '</a>');
+    while (i < lines.length) {
+      let ln = lines[i];
+      if (/^```/.test(ln)) {
+        i++; let code = '';
+        while (i < lines.length && !/^```/.test(lines[i])) { code += lines[i] + '\n'; i++; }
+        i++; out += '<pre><code>' + esc(code.replace(/\n$/, '')) + '</code></pre>'; continue;
+      }
+      if (/^\s*\|(.+)\|\s*$/.test(ln) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+        const head = ln.split('|').slice(1, -1).map((c) => c.trim());
+        i += 2; let body = '';
+        while (i < lines.length && /^\s*\|(.+)\|\s*$/.test(lines[i])) {
+          const cells = lines[i].split('|').slice(1, -1).map((c) => c.trim());
+          body += '<tr>' + cells.map((c) => '<td>' + inline(c) + '</td>').join('') + '</tr>'; i++;
+        }
+        out += '<table><thead><tr>' + head.map((c) => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>' + body + '</tbody></table>';
+        continue;
+      }
+      let m;
+      if ((m = ln.match(/^(#{1,4})\s+(.*)$/))) { out += '<h' + m[1].length + '>' + inline(m[2]) + '</h' + m[1].length + '>'; i++; continue; }
+      if (/^\s*>/.test(ln)) { out += '<blockquote>' + inline(ln.replace(/^\s*>\s?/, '')) + '</blockquote>'; i++; continue; }
+      if (/^\s*[-*+]\s+/.test(ln)) {
+        out += '<ul>';
+        while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) { out += '<li>' + inline(lines[i].replace(/^\s*[-*+]\s+/, '')) + '</li>'; i++; }
+        out += '</ul>'; continue;
+      }
+      if (/^\s*\d+\.\s+/.test(ln)) {
+        out += '<ol>';
+        while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) { out += '<li>' + inline(lines[i].replace(/^\s*\d+\.\s+/, '')) + '</li>'; i++; }
+        out += '</ol>'; continue;
+      }
+      if (/^\s*(---|===)\s*$/.test(ln)) { out += '<hr>'; i++; continue; }
+      if (/^\s*$/.test(ln)) { i++; continue; }
+      let para = ln; i++;
+      while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,4}\s|```|\s*[-*+]\s|\s*\d+\.\s|\s*>)/.test(lines[i])) { para += ' ' + lines[i]; i++; }
+      out += '<p>' + inline(para) + '</p>';
+    }
+    return out;
+  }
+
+  // ── global state ────────────────────────────────────────────────────────
+  const S = {
+    route: null,
+    programs: [],        // cached program list
+    currentProgram: localStorage.getItem('bos.program') || null,
+  };
+  function setProgram(id) { S.currentProgram = id; try { localStorage.setItem('bos.program', id); } catch (e) {} }
+
+  async function ensurePrograms(force) {
+    if (!S.programs.length || force) {
+      S.programs = await GET('/api/programs');
+      if ($('#sidebar')) renderSidebar(); // keep pinned programs in sync
+    }
+    return S.programs;
+  }
+  async function pickProgram(want) {
+    await ensurePrograms();
+    if (want && S.programs.some((p) => p.id === want)) { setProgram(want); return want; }
+    if (S.currentProgram && S.programs.some((p) => p.id === S.currentProgram)) return S.currentProgram;
+    if (S.programs[0]) { setProgram(S.programs[0].id); return S.programs[0].id; }
+    return null;
+  }
+
+  // ── router ────────────────────────────────────────────────────────────────
+  const NAV = [
+    ['dashboard', 'Dashboard', 'G D', 'dashboard', '#/dashboard'],
+    ['programs', 'Programs', 'G P', 'programs', '#/programs'],
+    ['reports', 'Reports', 'G R', 'reports', '#/reports'],
+  ];
+
+  function parseHash() {
+    let h = location.hash.replace(/^#\/?/, '');
+    const [path, qs] = h.split('?');
+    const q = {};
+    if (qs) qs.split('&').forEach((kv) => { const [k, v] = kv.split('='); if (k) q[decodeURIComponent(k)] = decodeURIComponent(v || ''); });
+    return { name: path || 'dashboard', q };
+  }
+  function go(hash) { location.hash = hash; }
+  function setQuery(q) {
+    const { name } = parseHash();
+    const qs = Object.keys(q).filter((k) => q[k] != null && q[k] !== '').map((k) => k + '=' + encodeURIComponent(q[k])).join('&');
+    location.hash = '#/' + name + (qs ? '?' + qs : '');
+  }
+
+  const VIEWS = {};
+
+  async function route() {
+    const r = parseHash();
+    S.route = r;
+    try {
+      const fn = VIEWS[r.name] || VIEWS.dashboard;
+      await fn(r.q);
+    } catch (e) {
+      console.error(e);
+      paint(r.name, [{ cur: 'Error' }], '', `<div class="empty"><div class="big">Something went wrong</div><div class="muted">${esc(e.message)}</div><button class="btn" onclick="location.reload()">Reload</button></div>`);
+      toast(e.message, 'err');
+    }
+  }
+
+  // ── persistent shell: built ONCE, then only the content area swaps ──────────
+  // This is what makes navigation smooth — the sidebar and topbar are never
+  // re-created, so there is no full-page flash on every click.
+  function crumbsHtml(crumbs) {
+    return crumbs.map((c) => c.cur
+      ? `<span class="cur">${esc(c.cur)}</span>`
+      : (c.href ? `<a href="${c.href}">${esc(c.label)}</a>` : `<span>${esc(c.label)}</span>`)
+    ).join('<span class="sep">/</span>');
+  }
+
+  function ensureShell() {
+    if ($('#view')) return;
+    app().innerHTML = `
+      <aside class="sidebar" id="sidebar"></aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="crumb" id="crumb"></div>
+          <button class="cmd-btn right" data-cmdk>
+            ${svg('search', 14)}
+            <span class="q">Search or run a command…</span>
+            <span class="kbd">Ctrl K</span>
+          </button>
+          <div class="topbar-actions" id="topbar-actions"></div>
+        </header>
+        <div class="view" id="view"></div>
+      </div>`;
+    $('[data-cmdk]').onclick = openCmdk;
+    renderSidebar();
+  }
+
+  function renderSidebar() {
+    const el = $('#sidebar'); if (!el) return;
+    const items = NAV.map(([id, label, keys, icon, href]) => `
+      <a class="nav-item" data-nav="${id}" href="${href}">
+        <span class="nav-dot"></span><span class="lbl">${label}</span><span class="nav-keys">${keys}</span>
+      </a>`).join('');
+    const pins = (S.programs || []).slice(0, 5).map((p) => {
+      const pct = progPct(p);
+      const col = pct >= 60 ? 'var(--em)' : pct >= 30 ? 'var(--am)' : 'var(--muted-2)';
+      return `<button class="pin-row" data-openprog="${p.id}">
+        <span class="pin-tag">${esc(initials(p.name))}</span>
+        <span class="nm">${esc(p.name)}</span>
+        <span class="pin-pct" style="color:${col}">${pct}%</span></button>`;
+    }).join('') || '<div style="padding:4px 8px;font-size:12px" class="muted-2">No programs yet</div>';
+    el.innerHTML = `
+      <div class="side-head">
+        <div class="brand-mark">$</div>
+        <div class="brand-name">bounty<span>/</span>os</div>
+        <div class="brand-v">v2</div>
+      </div>
+      <div class="side-scroll">
+        <div class="nav-label nav-sec-1">Workspace</div>
+        <nav class="nav">${items}</nav>
+        <div class="nav-label nav-sec-2">Programs</div>
+        <div class="nav" style="gap:2px">${pins}</div>
+      </div>
+      <div class="side-foot">
+        <div class="status-line"><span class="status-dot"></span> local · sqlite · live</div>
+        <div class="foot-hint"><span class="kbd">?</span> Keyboard map</div>
+      </div>`;
+    $$('[data-openprog]', el).forEach((b) => b.onclick = () => go('#/program?id=' + b.dataset.openprog));
+    if (S.route) setActiveNav(S.route.name); // rebuilding the sidebar drops .active — restore it
+  }
+
+  function setActiveNav(name) {
+    $$('#sidebar .nav-item').forEach((n) => n.classList.toggle('active', n.dataset.nav === name));
+  }
+
+  // Swap only the content, breadcrumb and per-view actions. No full-page rebuild.
+  function paint(active, crumbs, right, body, opts) {
+    opts = opts || {};
+    ensureShell();
+    $('#crumb').innerHTML = crumbsHtml(crumbs);
+    $('#topbar-actions').innerHTML = right || '';
+    const view = $('#view');
+    view.className = 'view' + (opts.flush ? ' flush' : '');
+    view.innerHTML = body;
+    view.scrollTop = 0;
+    animateIn(view, 240); // re-trigger the fade/rise on every navigation (persistent element)
+    setActiveNav(active);
+    if (opts.mount) opts.mount();
+  }
+
+  function progPct(p) {
+    // "progress" = testing-checklist completion across the program's scopes (from the API)
+    return p ? Math.round(p.checklist_pct || 0) : 0;
+  }
+
+  // ============================================================================
+  //  Dashboard
+  // ============================================================================
+  VIEWS.dashboard = async function () {
+    paint('dashboard', [{ label: 'Workspace' }, { cur: 'Dashboard' }], '', `<div class="loading">loading dashboard…</div>`);
+    const [ov, progs, an] = await Promise.all([GET('/api/overview'), ensurePrograms(), GET('/api/analytics')]);
+    const k = ov.kpis;
+
+    // severity spectrum
+    const sevMap = {}; (ov.by_severity || []).forEach((s) => sevMap[s.name] = s.value);
+    const sev = SEV_ORDER.map((name) => ({ name, n: sevMap[name] || 0, color: SEV_COLOR[name] }));
+    const sevTotal = sev.reduce((a, b) => a + b.n, 0) || 1;
+    const spectrum = sev.map((s) => `<div style="flex-grow:${s.n || 0.04};background:${s.color}"></div>`).join('');
+    const spectrumLegend = sev.map((s) => `<span class="leg"><span class="sw" style="background:${s.color}"></span>${s.name} <b>${s.n}</b></span>`).join('');
+
+    // earnings trend
+    const trend = (ov.trend || []).slice(-12);
+    const bars = trendBars(trend.map((t) => ({ label: monthLabel(t.month), v: t.bounty })), 760, 200);
+
+    // platform distribution (join analytics.by_program -> program.platform)
+    const platByName = {}; progs.forEach((p) => platByName[p.name] = p.platform || 'Private');
+    const platTotals = {};
+    (an.by_program || []).forEach((bp) => { const pl = platByName[bp.name] || 'Private'; platTotals[pl] = (platTotals[pl] || 0) + (bp.total || 0); });
+    let plats = Object.keys(platTotals).map((name) => ({ name, total: platTotals[name] }));
+    const platSum = plats.reduce((a, b) => a + b.total, 0);
+    if (platSum === 0) { // fall back to finding counts per platform
+      const cnt = {}; (an.by_program || []).forEach((bp) => { const pl = platByName[bp.name] || 'Private'; cnt[pl] = (cnt[pl] || 0) + (bp.findings || 0); });
+      plats = Object.keys(cnt).map((name) => ({ name, total: cnt[name] }));
+    }
+    plats.sort((a, b) => b.total - a.total);
+    const donut = donutChart(plats);
+
+    // ── analytics (merged into the dashboard) ──
+    const bmap = {}; (an.bounty || []).forEach((b) => bmap[b.month] = b.bounty || 0);
+    const rmap = {}; (an.reports_time || []).forEach((r) => rmap[r.month] = (rmap[r.month] || 0) + r.c);
+    const months = Array.from(new Set(Object.keys(bmap).concat(Object.keys(rmap)))).sort().slice(-12);
+    const combo = comboChart(months.map((m) => ({ label: monthLabel(m), bounty: bmap[m] || 0, reports: rmap[m] || 0 })));
+    const fmax = Math.max(1, ...(an.funnel || []).map((f) => f.value));
+    const funnel = (an.funnel || []).map((f, i, arr) => {
+      const conv = i === 0 ? '100%' : Math.round(f.value / (arr[0].value || 1) * 100) + '%';
+      return `<div class="funnel-row"><div class="top"><span class="lbl">${esc(f.name)}</span><span class="n">${f.value}</span><span class="conv">${conv}</span></div>
+        <div class="pbar"><i style="width:${Math.round(f.value / fmax * 100)}%;background:${['#a78bfa', '#88c0d0', '#ebcb8b', '#b48ead', '#d3868d'][i % 5]}"></i></div></div>`;
+    }).join('') || '<div class="muted mini">No reports yet.</div>';
+    const cmax = Math.max(1, ...(an.by_class || []).map((c) => c.value));
+    const classes = (an.by_class || []).slice(0, 8).map((c) => `
+      <div class="bar-row"><span class="lbl">${esc(c.name || 'Unclassified')}</span>
+        <div class="pbar"><i style="width:${Math.round(c.value / cmax * 100)}%;background:var(--cy)"></i></div>
+        <span class="n">${c.value}</span><span class="avg">—</span></div>`).join('') || '<div class="muted mini">No data yet.</div>';
+    const pmax = Math.max(1, ...(an.by_program || []).map((p) => p.total));
+    const byProg = (an.by_program || []).slice(0, 8).map((p) => `
+      <div class="bar-row" style="grid-template-columns:130px 1fr auto"><span class="lbl">${esc(p.name)}</span>
+        <div class="pbar"><i style="width:${Math.round(p.total / pmax * 100)}%"></i></div>
+        <span class="avg">${money(p.total)}</span></div>`).join('') || '<div class="muted mini">No data yet.</div>';
+
+    // what's next
+    const next = (ov.next || []).map((n) => {
+      const tag = n.label.includes('validate') ? { t: 'CHK', c: '#a78bfa', bg: 'var(--em-soft)' }
+        : n.label.includes('unfinished') ? { t: 'DRAFT', c: '#9aa4bb', bg: 'var(--panel-3)' }
+          : n.label.includes('response') ? { t: 'WAIT', c: '#88c0d0', bg: 'var(--cy-soft)' }
+            : { t: 'INV', c: '#ebcb8b', bg: 'var(--am-soft)' };
+      return `<a class="feed-row" href="${esc((n.to || '#/dashboard').replace('#/', '#/'))}">
+        <span class="feed-tag" style="color:${tag.c};background:${tag.bg}">${tag.t}</span>
+        <span class="txt"><b class="mono" style="color:var(--ink)">${n.count}</b> ${esc(n.label)}</span>
+        <span class="feed-when">→</span></a>`;
+    }).join('') || '<div class="muted" style="padding:12px 0;font-size:13px">All clear — nothing urgent. Nice.</div>';
+
+    // recent findings feed
+    const recent = (ov.recent || []).slice(0, 5).map((f) => `
+      <a class="feed-row" href="#/reports?open=${f.id}">
+        <span class="feed-tag sev-${esc(f.severity || 'Info')}">${esc(f.severity || 'Info').slice(0, 3).toUpperCase()}</span>
+        <span class="txt">${esc(f.title)} <span class="muted-2">· ${esc(f.program_name || '')}</span></span>
+        <span class="feed-when">${timeAgo(f.created_at)}</span></a>`).join('') || '<div class="muted mini" style="padding:8px 0">No reports yet.</div>';
+
+    const activeCount = k.programs || 0;
+    const pubCount = progs.filter((p) => !p.is_private).length;
+    const privCount = progs.filter((p) => p.is_private).length;
+    const totalProg = pubCount + privCount || 1;
+
+    const body = `
+      <div class="kpi-grid">
+        <section class="kpi">
+          <div class="row-flex"><span class="kpi-label">Total bounties earned</span></div>
+          <div class="kpi-num">${money(k.total_bounty)}</div>
+          <div class="kpi-sub"><span class="up">▲ lifetime</span><span>${k.findings} findings logged</span></div>
+        </section>
+        <section class="kpi">
+          <span class="kpi-label">Active programs</span>
+          <div class="kpi-num">${activeCount}</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div class="split-bar"><div style="width:${Math.round(pubCount / totalProg * 100)}%;background:var(--cy)"></div><div style="flex-grow:1;background:var(--am)"></div></div>
+            <div class="split-legend"><span><span style="color:var(--cy)">■</span> ${pubCount} public</span><span><span style="color:var(--am)">■</span> ${privCount} private</span></div>
+          </div>
+        </section>
+        <section class="kpi kpi-split">
+          <div><span class="kpi-label">Confirmed+</span><span class="kpi-num">${k.confirmed}</span><span class="kpi-label">validated</span></div>
+          <div><span class="kpi-label">Reports</span><span class="kpi-num cy">${k.reports}</span><span class="kpi-label">${k.submitted} submitted</span></div>
+        </section>
+        <section class="kpi">
+          <span class="kpi-label">Assets tracked</span>
+          <div class="kpi-num am">${k.assets}</div>
+          <div class="kpi-label">across ${progs.length} programs</div>
+        </section>
+      </div>
+
+      <section class="card spectrum">
+        <span class="spectrum-label">Severity spectrum</span>
+        <div class="spectrum-bar">${spectrum}</div>
+        <div class="spectrum-legend">${spectrumLegend}</div>
+      </section>
+
+      <div class="grid-2">
+        <section class="card">
+          <div class="card-h"><h2 class="card-title">Earnings trend</h2><span class="card-sub">payouts received per month</span></div>
+          ${trend.length ? bars : `<div class="empty" style="padding:30px"><span class="muted">No payouts recorded yet.</span></div>`}
+        </section>
+        <section class="card">
+          <div class="card-h"><h2 class="card-title">Platform distribution</h2><span class="card-sub right">by ${platSum ? 'earnings' : 'volume'}</span></div>
+          <div style="display:flex;align-items:center;gap:18px">
+            ${donut.svg}
+            <div style="flex-grow:1;display:flex;flex-direction:column;gap:7px">${donut.legend}</div>
+          </div>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="card-h"><h2 class="card-title">Bounties &amp; reports over time</h2>
+          <span class="card-sub right"><span class="legend-dot" style="background:var(--em-mid)"></span> bounty paid &nbsp; <span class="legend-dot" style="background:var(--cy)"></span> reports</span></div>
+        ${months.length ? combo : '<div class="empty" style="padding:30px"><span class="muted">No timeline data yet.</span></div>'}
+      </section>
+
+      <div class="grid-3">
+        <section class="card"><div class="card-h"><h2 class="card-title">Status funnel</h2></div>${funnel}</section>
+        <section class="card"><div class="card-h"><h2 class="card-title">Severity breakdown</h2><span class="card-sub right">count</span></div>${classes}</section>
+        <section class="card"><div class="card-h"><h2 class="card-title">Bounty by program</h2><span class="card-sub right">net paid</span></div>${byProg}</section>
+      </div>
+
+      <div class="grid-2">
+        <section class="card">
+          <div class="card-h"><h2 class="card-title">Recent reports</h2></div>
+          <div>${recent}</div>
+        </section>
+        <section class="card">
+          <div class="card-h"><h2 class="card-title">What's next</h2><span class="card-sub right">by urgency</span></div>
+          ${next}
+        </section>
+      </div>`;
+
+    paint('dashboard', [{ label: 'Workspace' }, { cur: 'Dashboard' }], '', body);
+  };
+
+  function trendBars(data, W, H) {
+    const max = Math.max(1, ...data.map((d) => d.v)) * 1.12;
+    const left = 42, top = 16, base = H, plot = W - left;
+    const slot = plot / Math.max(1, data.length), bw = Math.min(40, slot * 0.56);
+    const gl = [0, 0.33, 0.66, 1].map((f) => `<line x1="${left}" y1="${top + (base - top) * (1 - f)}" x2="${W}" y2="${top + (base - top) * (1 - f)}" stroke="${f === 0 ? '#4c566a' : '#333a47'}"/>`).join('');
+    const axis = [1, 0.66, 0.33, 0].map((f) => `<text x="0" y="${top + (base - top) * (1 - f) + 4}" fill="#6e7891" font-size="10" font-family="JetBrains Mono, monospace">${f === 0 ? '0' : kmoney(max * f)}</text>`).join('');
+    const last = data.length - 1;
+    const bars = data.map((d, i) => {
+      const h = Math.round((d.v / max) * (base - top));
+      const x = left + i * slot + (slot - bw) / 2;
+      const fill = i === last ? '#a78bfa' : '#4c4370';
+      return `<rect x="${x.toFixed(1)}" y="${(base - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h}" rx="3" fill="${fill}"/>
+        <text x="${(x + bw / 2).toFixed(1)}" y="${base + 18}" fill="#6e7891" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">${esc(d.label)}</text>`;
+    }).join('');
+    const pk = data[last];
+    const peak = pk ? `<text x="${(left + last * slot + slot / 2).toFixed(1)}" y="${(base - (pk.v / max) * (base - top) - 8).toFixed(1)}" fill="#c9bafd" font-size="11" text-anchor="middle" font-family="JetBrains Mono, monospace">${money(pk.v)}</text>` : '';
+    return `<svg width="100%" height="${H + 26}" viewBox="0 0 ${W} ${H + 26}" role="img">${gl}${axis}${bars}${peak}</svg>`;
+  }
+
+  function donutChart(items) {
+    const colors = ['#a78bfa', '#88c0d0', '#ebcb8b', '#b48ead', '#d3868d', '#9aa4bb', '#c9bafd'];
+    const total = items.reduce((a, b) => a + b.total, 0) || 1;
+    const C = 2 * Math.PI * 70; let acc = 0;
+    const circles = items.map((it, idx) => {
+      const frac = it.total / total, len = frac * C;
+      const c = `<circle cx="90" cy="90" r="70" fill="none" stroke="${colors[idx % colors.length]}" stroke-width="18" stroke-dasharray="${(len - 3).toFixed(1)} ${(C - len + 3).toFixed(1)}" stroke-dashoffset="${(-acc).toFixed(1)}" transform="rotate(-90 90 90)"/>`;
+      acc += len; return c;
+    }).join('');
+    const s = `<svg width="140" height="140" viewBox="0 0 180 180" role="img">
+      <circle cx="90" cy="90" r="70" fill="none" stroke="#2a2f3a" stroke-width="18"/>${circles}
+      <text x="90" y="86" fill="#eceff4" font-size="22" font-weight="600" text-anchor="middle" font-family="JetBrains Mono, monospace">${items.length}</text>
+      <text x="90" y="106" fill="#9aa4bb" font-size="11" text-anchor="middle">platforms</text></svg>`;
+    const legend = items.length ? items.map((it, idx) => `
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+        <span class="legend-dot" style="background:${colors[idx % colors.length]}"></span>
+        <span style="flex-grow:1;color:var(--ink-3)">${esc(it.name)}</span>
+        <span class="mono" style="width:40px;text-align:right">${Math.round(it.total / total * 100)}%</span>
+      </div>`).join('') : '<span class="muted mini">No data yet.</span>';
+    return { svg: s, legend };
+  }
+
+
+  // ============================================================================
+  //  Programs (+ drawer)
+  // ============================================================================
+  VIEWS.programs = async function (q) {
+    const filter = q.filter || 'all';
+    const progs = await ensurePrograms(true);
+    const shown = progs.filter((p) =>
+      filter === 'all' ? true :
+        filter === 'public' ? !p.is_private :
+          filter === 'private' ? p.is_private :
+            filter === 'watched' ? p.is_watched : true);
+
+    const filters = [['all', 'All', progs.length], ['public', 'Public', progs.filter((p) => !p.is_private).length],
+    ['private', 'Private', progs.filter((p) => p.is_private).length], ['watched', 'Watched', progs.filter((p) => p.is_watched).length]]
+      .map(([id, label, n]) => `<button class="chip ${filter === id ? 'on' : ''}" data-filter="${id}">${label} <span class="n">${n}</span></button>`).join('');
+
+    const cards = shown.map((p) => {
+      const pct = progPct(p);
+      const col = pct >= 60 ? 'var(--em)' : pct >= 30 ? 'var(--am)' : 'var(--muted-2)';
+      return `<div class="prog-card" data-open="${p.id}" tabindex="0">
+        <div class="prog-card-top">
+          <span class="pin-tag lg">${esc(initials(p.name))}</span>
+          <div class="prog-card-title">
+            <div class="cell-title">${esc(p.name)}</div>
+            <div class="prog-card-badges">
+              <span class="badge" style="color:${platColor(p.platform)};border-color:var(--border-2)"><span class="sw" style="background:${platColor(p.platform)}"></span>${esc(p.platform || '—')}</span>
+              <span class="badge" style="color:${p.is_private ? 'var(--am)' : 'var(--cy)'};border-color:var(--border-2)">${p.is_private ? svg('lock', 10) : svg('globe', 10)} ${p.is_private ? 'Private' : 'Public'}</span>
+            </div>
+          </div>
+          <button class="icon-btn danger prog-card-del" data-delprog="${p.id}" data-prog-name="${attr(p.name)}" title="Delete program">${svg('trash', 13)}</button>
+        </div>
+        <div class="prog-card-stats">
+          <span>${p.asset_count || 0} <b class="muted-2">scopes</b></span>
+          <span>${p.finding_count || 0} <b class="muted-2">reports</b></span>
+        </div>
+        <div class="pwrap"><span class="pbar"><i style="width:${pct}%;background:${col}"></i></span><span class="pct" style="color:${col}">${pct}%</span></div>
+        <div class="mini muted-2">checklist</div>
+      </div>`;
+    }).join('');
+
+    const body = `
+      <div class="chips">${filters}<span class="hint">Sort: <span class="mono" style="color:var(--ink-3)">last activity</span></span></div>
+      ${cards ? `<div class="prog-grid">${cards}</div>` : `<div class="empty"><div class="big">No programs in this view</div><button class="btn primary" data-newprog>${svg('plus', 14)} New program</button></div>`}`;
+
+    const right = `<button class="btn" data-newprog>${svg('plus', 14)} New program</button>`;
+    paint('programs', [{ label: 'Workspace' }, { cur: 'Programs' }], right, body);
+    $$('[data-filter]').forEach((b) => b.onclick = () => setQuery(Object.assign({}, q, { filter: b.dataset.filter })));
+    // Open the program as its own full page (not a side drawer).
+    $$('.prog-card[data-open]').forEach((c) => {
+      c.onclick = (e) => { if (e.target.closest('[data-delprog]')) return; go('#/program?id=' + c.dataset.open); };
+      c.onkeydown = (e) => { if (e.key === 'Enter') go('#/program?id=' + c.dataset.open); };
+    });
+    $$('[data-delprog]').forEach((b) => b.onclick = async (e) => {
+      e.stopPropagation();
+      if (!(await confirmDialog({ title: 'Delete program?', body: esc(b.dataset.progName) + ' and all its scopes, reports and checklist progress will be permanently deleted.', confirm: 'Delete', danger: true }))) return;
+      try { await DEL('/api/programs/' + b.dataset.delprog); toast('Program deleted'); await ensurePrograms(true); renderSidebar(); route(); } catch (er) { toast(er.message, 'err'); }
+    });
+    $$('[data-newprog]').forEach((b) => b.onclick = () => newProgramModal());
+  };
+
+  // ============================================================================
+  //  Program — full-page detail (opens in place of the list, not a side drawer)
+  // ============================================================================
+  VIEWS.program = async function (q) {
+    const pid = q.id;
+    if (!pid) { go('#/programs'); return; }
+    const tab = q.tab || 'scope';
+    paint('programs', [{ label: 'Workspace' }, { label: 'Programs', href: '#/programs' }, { cur: '…' }], '', `<div class="loading">loading program…</div>`);
+    let d;
+    try { d = await GET('/api/programs/' + pid); } catch (e) { toast(e.message, 'err'); go('#/programs'); return; }
+    if (!d || !d.program) { toast('Program not found', 'err'); go('#/programs'); return; }
+    const p = d.program;
+    setProgram(pid);
+    const pct = Math.round(p.checklist_pct || 0);
+
+    const meta = [
+      ['Platform', p.platform || '—'], ['Access', p.is_private ? 'Private' : 'Public'],
+      ['Status', p.status || 'Active'], ['Findings', d.findings.length],
+    ];
+    const subsByAsset = {}; d.subdomains.forEach((s) => { (subsByAsset[s.asset_id] = subsByAsset[s.asset_id] || []).push(s); });
+    const inScope = d.assets.map((a, ai) => {
+      const subs = (subsByAsset[a.id] || []).slice().sort((x, y) => x.host.localeCompare(y.host));
+      const live = subs.filter((s) => s.status === 'Live').length;
+      const subRows = subs.map((s) => `
+        <div class="sub-row">
+          <button class="linklike host" data-open-report="subdomain" data-id="${s.id}" data-label="${attr(s.host)}" title="Open report for ${attr(s.host)}">${esc(s.host)}</button>
+          <span>${statusBadge(s.status, s.http_code)}</span>
+          <span class="cell-mut mini">${esc(s.title || '—')}</span>
+          <button class="icon-btn danger" data-delsub="${s.id}" title="Delete subdomain">${svg('trash', 13)}</button>
+        </div>`).join('') || '<div class="sub-row"><span class="muted mini">No subdomains yet — use “+ Subdomain”.</span></div>';
+      return `<div class="tree-asset ${ai === 0 ? 'open' : ''}" data-asset="${a.id}">
+        <div class="tree-head">
+          <button class="tree-caret-btn" data-toggle="${a.id}" aria-label="Expand">${svg('chevron', 14)}</button>
+          <button class="linklike host" data-open-report="asset" data-id="${a.id}" data-label="${attr(a.name)}" title="Open report for ${attr(a.name)}">${esc(a.name)}</button>
+          <span class="type-tag">${esc(a.type || 'Web')}</span>
+          <span class="mono mini muted-2 nowrap">${subs.length} sub</span>
+          <span class="tree-actions">
+            <button class="btn sm" data-addsub="${a.id}">${svg('plus', 12)} Subdomain</button>
+            <button class="icon-btn danger" data-delasset="${a.id}" data-asset-name="${attr(a.name)}" title="Remove scope">${svg('trash', 13)}</button>
+          </span>
+        </div>
+        <div class="sub-list" data-sublist="${a.id}" style="${ai === 0 ? '' : 'display:none'}">${subRows}</div>
+      </div>`;
+    }).join('') || '<div class="muted mini" style="padding:8px 0">No scope yet — add a domain, URL or IP.</div>';
+
+    const tabs = [['scope', 'Scope'], ['checklist', 'Checklist'], ['findings', 'Findings'], ['notes', 'Notes'], ['timeline', 'Timeline']]
+      .map(([id, label]) => `<button class="tab ${tab === id ? 'on' : ''}" data-ptab="${id}">${label}</button>`).join('');
+
+    let panel = '';
+    if (tab === 'checklist') {
+      panel = `<div id="prog-checklist" class="prog-checklist"><div class="loading">loading checklist…</div></div>`;
+    } else if (tab === 'findings') {
+      panel = `<div id="prog-findings"><div class="loading">loading findings…</div></div>`;
+    } else if (tab === 'scope') {
+      panel = `
+        <div class="meta-grid">${meta.map(([k, v]) => `<div class="meta-cell"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join('')}</div>
+        <section class="card" style="margin-top:2px">
+          <div class="section-h"><h3>In scope</h3><span class="count">${d.assets.length}</span>
+            <button class="btn sm right" data-addasset>${svg('plus', 12)} Add scope</button></div>
+          <div class="scope-tree">${inScope}</div>
+          <div class="mini muted-2">Click a domain or subdomain to open its report.</div>
+        </section>
+        ${p.tags ? `<div class="chips">${p.tags.split(',').filter(Boolean).map((t) => `<span class="chip" style="pointer-events:none">${esc(t.trim())}</span>`).join('')}</div>` : ''}`;
+    } else if (tab === 'notes') {
+      panel = `
+        <div class="section-h"><h3>Research notes</h3><span class="count" id="notes-state">Markdown · autosaved</span></div>
+        <textarea class="notes-editor" id="prog-notes" style="min-height:400px" placeholder="# Notes&#10;&#10;- recon findings&#10;- auth flow quirks">${esc(p.notes || '')}</textarea>`;
+    } else {
+      const tl = (d.timeline || []).map((e, i, arr) => `
+        <div class="tl-row">
+          <div class="tl-rail"><span class="tl-node"></span>${i < arr.length - 1 ? '<span class="tl-line"></span>' : ''}</div>
+          <div class="tl-body"><div class="tl-head"><span class="t">${esc(e.title)}</span><span class="when">${timeAgo(e.at)}</span></div>
+          <div class="tl-kind">${esc(e.detail || '')}</div></div>
+        </div>`).join('') || '<div class="muted mini">No timeline events.</div>';
+      panel = `<div class="timeline">${tl}</div>`;
+    }
+
+    const body = `
+      <div class="prog-page">
+        <section class="card prog-hero">
+          <div class="avatar lg">${esc(initials(p.name))}</div>
+          <div style="flex-grow:1;min-width:0">
+            <h1 class="prog-title">${esc(p.name)}</h1>
+            <div class="drawer-badges">
+              <span class="badge" style="color:${platColor(p.platform)};border-color:var(--border-2)"><span class="sw" style="background:${platColor(p.platform)}"></span>${esc(p.platform || '—')}</span>
+              <span class="badge" style="color:${p.is_private ? 'var(--am)' : 'var(--cy)'};border-color:var(--border-2)">${p.is_private ? svg('lock', 10) : svg('globe', 10)} ${p.is_private ? 'Private' : 'Public'}</span>
+              <span class="muted mini">edited ${timeAgo(p.updated_at)} ago</span>
+            </div>
+          </div>
+          <div class="prog-actions">
+            <button class="btn sm ghost" data-watch style="color:${p.is_watched ? 'var(--am)' : 'var(--muted)'}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="${p.is_watched ? 'var(--am)' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linejoin="round">${I.star}</svg>${p.is_watched ? 'Watching' : 'Watch'}</button>
+            <button class="icon-btn danger" data-delprog2 title="Delete program">${svg('trash', 13)}</button>
+          </div>
+          <div class="drawer-prog"><div class="big">${pct}%</div><div class="lbl">checklist</div></div>
+        </section>
+        <div class="tabs" style="margin-top:4px">${tabs}</div>
+        <div class="prog-panel">${panel}</div>
+      </div>`;
+
+    paint('programs', [{ label: 'Workspace' }, { label: 'Programs', href: '#/programs' }, { cur: p.name }], '', body);
+
+    if (tab === 'checklist') mountChecklist($('#prog-checklist'), pid);
+    if (tab === 'findings') mountProgramFindings($('#prog-findings'), pid);
+    $$('[data-ptab]').forEach((b) => b.onclick = () => setQuery({ id: pid, tab: b.dataset.ptab }));
+    $('[data-watch]').onclick = async () => {
+      try { await PATCH('/api/programs/' + pid, { is_watched: !p.is_watched }); toast(p.is_watched ? 'Unwatched' : 'Watching'); await ensurePrograms(true); renderSidebar(); setActiveNav('programs'); route(); }
+      catch (e) { toast(e.message, 'err'); }
+    };
+    const addA = $('[data-addasset]'); if (addA) addA.onclick = () => addAssetModal(pid);
+    $$('[data-toggle]').forEach((b) => b.onclick = () => {
+      const id = b.dataset.toggle, wrap = $('.tree-asset[data-asset="' + id + '"]'), list = $('[data-sublist="' + id + '"]');
+      const open = wrap.classList.toggle('open'); list.style.display = open ? '' : 'none';
+    });
+    $$('[data-open-report]').forEach((b) => b.onclick = () => openReportForTarget(b.dataset.openReport, b.dataset.id, pid, b.dataset.label));
+    $$('[data-addsub]').forEach((b) => b.onclick = () => addSubModal(b.dataset.addsub, pid));
+    $$('[data-delsub]').forEach((b) => b.onclick = async () => {
+      if (!(await confirmDialog({ title: 'Delete subdomain?', body: 'This removes it from the scope.', confirm: 'Delete', danger: true }))) return;
+      try { await DEL('/api/subdomains/' + b.dataset.delsub); toast('Subdomain deleted'); route(); } catch (e) { toast(e.message, 'err'); }
+    });
+    $$('[data-delasset]').forEach((b) => b.onclick = async () => {
+      const aid = b.dataset.delasset, name = b.dataset.assetName;
+      if (!(await confirmDialog({ title: 'Remove scope?', body: esc(name) + ' and its subdomains/checklist progress will be deleted.', confirm: 'Remove', danger: true }))) return;
+      try { await DEL('/api/assets/' + aid); toast('Scope removed'); route(); } catch (e) { toast(e.message, 'err'); }
+    });
+    $('[data-delprog2]').onclick = async () => {
+      if (!(await confirmDialog({ title: 'Delete program?', body: esc(p.name) + ' and all its scopes, reports and checklist progress will be permanently deleted.', confirm: 'Delete', danger: true }))) return;
+      try { await DEL('/api/programs/' + pid); toast('Program deleted'); await ensurePrograms(true); renderSidebar(); go('#/programs'); } catch (e) { toast(e.message, 'err'); }
+    };
+    const notes = $('#prog-notes');
+    if (notes) {
+      const save = debounce(async () => {
+        try { await PATCH('/api/programs/' + pid, { notes: notes.value }); $('#notes-state').textContent = '● autosaved'; }
+        catch (e) { toast(e.message, 'err'); }
+      }, 700);
+      notes.oninput = () => { $('#notes-state').textContent = 'saving…'; save(); };
+    }
+  };
+
+  // ============================================================================
+  //  Assets & subdomains
+  // ============================================================================
+  VIEWS.assets = async function (q) {
+    const pid = await pickProgram(q.program);
+    if (!pid) return renderNoProgram('assets', 'Assets & subdomains');
+    if (q.program !== pid) { setQuery({ program: pid }); return; }
+    const d = await GET('/api/programs/' + pid);
+    const p = d.program;
+    const subsByAsset = {}; d.subdomains.forEach((s) => { (subsByAsset[s.asset_id] = subsByAsset[s.asset_id] || []).push(s); });
+    const findByAsset = {}; d.findings.forEach((f) => { if (f.asset_id) findByAsset[f.asset_id] = (findByAsset[f.asset_id] || 0) + 1; });
+
+    const assetsHtml = d.assets.map((a) => {
+      const subs = (subsByAsset[a.id] || []).sort((x, y) => x.host.localeCompare(y.host));
+      const subRows = subs.map((s) => `
+        <div class="sub-row">
+          <span class="host">${esc(s.host)}</span>
+          <span class="cell-mut mini">${esc(s.title || '')}</span>
+          <span class="sub-actions">
+            <button class="icon-btn" title="Log finding" data-subfinding="${s.id}" data-subhost="${attr(s.host)}">${svg('plus', 13)}</button>
+            <button class="icon-btn danger" title="Delete" data-delsub="${s.id}">${svg('trash', 13)}</button>
+          </span>
+        </div>`).join('') || '<div class="sub-row"><span class="muted mini">No subdomains yet — add some below.</span></div>';
+      return `<div class="tree-asset" data-asset="${a.id}">
+        <button class="tree-head" data-toggle="${a.id}">
+          <span class="tree-asset-name"><span class="tree-caret">${svg('chevron', 14)}</span><span class="host">${esc(a.name)}</span><span class="type-tag">${esc(a.type || 'Web')}</span></span>
+          <span class="cell-mut mini">${esc(a.technology || '')}</span>
+          <span class="mono mini muted-2">${subs.length} sub</span>
+          <span class="row-flex" style="justify-content:flex-end">
+            ${findByAsset[a.id] ? `<span class="badge sev-Medium" style="background:var(--cy-soft);color:var(--cy)">${findByAsset[a.id]} finding${findByAsset[a.id] > 1 ? 's' : ''}</span>` : ''}
+            <button class="btn sm" data-addsub="${a.id}">${svg('plus', 12)} Subdomains</button>
+            <button class="icon-btn danger" data-delasset="${a.id}" data-asset-name="${attr(a.name)}" title="Delete asset">${svg('trash', 13)}</button>
+          </span>
+        </button>
+        <div class="sub-list" data-sublist="${a.id}" style="display:none">${subRows}</div>
+      </div>`;
+    }).join('') || `<div class="empty"><div class="big">No assets in ${esc(p.name)}</div><button class="btn primary" data-addasset>${svg('plus', 14)} Add scope</button></div>`;
+
+    const right = `<button class="btn" data-addasset>${svg('plus', 14)} Add scope</button>`;
+
+    const body = `
+      <div class="chips">
+        ${progSwitcher(pid)}
+        <span class="hint">${d.assets.length} scopes · ${d.subdomains.length} subdomains</span>
+      </div>
+      <div>${assetsHtml}</div>`;
+
+    paint('assets', [{ label: esc(p.name) }, { cur: 'Assets & subdomains' }], right, body);
+    wireProgSwitcher('assets');
+    $$('[data-toggle]').forEach((b) => b.onclick = () => {
+      const id = b.dataset.toggle, wrap = $('.tree-asset[data-asset="' + id + '"]'), list = $('[data-sublist="' + id + '"]');
+      const open = wrap.classList.toggle('open'); list.style.display = open ? '' : 'none';
+    });
+    // open first asset by default
+    const first = $('.tree-asset'); if (first) { first.classList.add('open'); $('[data-sublist="' + first.dataset.asset + '"]').style.display = ''; }
+    $$('[data-addasset]').forEach((b) => b.onclick = () => addAssetModal(pid));
+    $$('[data-addsub]').forEach((b) => b.onclick = (e) => { e.stopPropagation(); addSubModal(b.dataset.addsub, pid); });
+    $$('[data-delsub]').forEach((b) => b.onclick = async (e) => {
+      e.stopPropagation();
+      if (!(await confirmDialog({ title: 'Delete subdomain?', body: 'This removes it from the asset.', confirm: 'Delete', danger: true }))) return;
+      try { await DEL('/api/subdomains/' + b.dataset.delsub); toast('Subdomain deleted'); route(); } catch (er) { toast(er.message, 'err'); }
+    });
+    $$('[data-subfinding]').forEach((b) => b.onclick = (e) => { e.stopPropagation(); newFindingModal({ program_id: pid, subdomain_id: b.dataset.subfinding }); });
+    $$('[data-delasset]').forEach((b) => b.onclick = async (e) => {
+      e.stopPropagation();
+      const name = b.dataset.assetName;
+      if (!(await confirmDialog({ title: 'Delete asset?', body: esc(name) + ' and all its subdomains + checklist progress will be deleted.', confirm: 'Delete', danger: true }))) return;
+      try { await DEL('/api/assets/' + b.dataset.delasset); toast('Asset deleted'); route(); } catch (er) { toast(er.message, 'err'); }
+    });
+  };
+
+  function statusBadge(status, code) {
+    const map = { Live: 'var(--em)', Redirect: 'var(--am)', Offline: 'var(--faint)', Unknown: 'var(--muted-2)' };
+    const c = map[status] || 'var(--muted-2)';
+    return `<span class="badge" style="color:${c};border-color:transparent"><span class="dot-status" style="background:${c}"></span>${esc(status || 'Unknown')}${code ? ' <span class="muted-2">' + code + '</span>' : ''}</span>`;
+  }
+
+  // ============================================================================
+  //  Checklist
+  // ============================================================================
+  const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII'];
+  let checklistScopeCloser = null; // outside-click closer for the scope dropdown
+
+  // Build the scope options — every asset AND every subdomain gets its own checklist.
+  // Scope tree: each domain (asset) with its subdomains nested; every node is its own scope.
+  function buildScopeTree(d) {
+    if (!d.assets || !d.assets.length) return [{ domain: 'General', subs: [] }];
+    const byAsset = {}; (d.subdomains || []).forEach((s) => { (byAsset[s.asset_id] = byAsset[s.asset_id] || []).push(s.host); });
+    return d.assets.map((a) => ({ domain: a.name, subs: (byAsset[a.id] || []).slice().sort((x, y) => x.localeCompare(y)) }));
+  }
+  function scopeTreeValues(tree) {
+    const v = []; tree.forEach((dm) => { v.push(dm.domain); dm.subs.forEach((s) => v.push(s)); }); return v;
+  }
+
+  // Shared checklist widget: ALL parts render as collapsible dropdowns in one continuous
+  // scroll (part 0 → end), with a sticky progress + section-jump rail on the far right.
+  function checklistBodyHTML(tpl, scopeTree, scope, progress) {
+    const pmap = {}; progress.forEach((r) => { if (r.scope === scope) pmap[r.item_key] = r; });
+    const roman = (n) => ROMAN[n] || n;
+    const partStats = tpl.parts.map((pt) => ({ total: pt.items.length, done: pt.items.filter((it) => pmap[it.key] && pmap[it.key].checked).length }));
+    const totalItems = tpl.parts.reduce((a, pt) => a + pt.items.length, 0);
+    const doneItems = partStats.reduce((a, s) => a + s.done, 0);
+    const scopePct = Math.round(doneItems / (totalItems || 1) * 100);
+
+    const scPctFor = (v) => {
+      const done = tpl.parts.reduce((a, pt) => a + pt.items.filter((it) => { const r = progress.find((x) => x.scope === v && x.item_key === it.key); return r && r.checked; }).length, 0);
+      return Math.round(done / (totalItems || 1) * 100);
+    };
+
+    // Scope tree box (domains expandable → subdomains nested); the active node is highlighted.
+    const scopeTreeHTML = scopeTree.map((dm, di) => {
+      const domActive = scope === dm.domain;
+      const hasActiveSub = dm.subs.includes(scope);
+      const open = domActive || hasActiveSub || (di === 0 && !scope) || di === 0;
+      const subRows = dm.subs.map((sub) => `
+        <button class="cst-row sub ${scope === sub ? 'active' : ''}" data-cst-scope="${attr(sub)}">
+          <span class="cst-name">${esc(sub)}</span><span class="cst-pct">${scPctFor(sub)}%</span>
+        </button>`).join('');
+      return `<div class="cst-dom ${open ? 'open' : ''}">
+        <div class="cst-domrow">
+          <button class="cst-caret" data-cst-toggle="${di}" aria-label="Expand">${dm.subs.length ? svg('chevron', 12) : ''}</button>
+          <button class="cst-row dom ${domActive ? 'active' : ''}" data-cst-scope="${attr(dm.domain)}">
+            <span class="cst-name">${esc(dm.domain)}</span><span class="cst-pct">${scPctFor(dm.domain)}%</span>
+          </button>
+        </div>
+        ${dm.subs.length ? `<div class="cst-subs">${subRows}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    const cleanT = (t) => esc(t.replace(/^Part\s+[IVX0-9]+\s*[-–]\s*/i, ''));
+
+    const partsHTML = tpl.parts.map((pt, i) => {
+      const st = partStats[i];
+      const introHTML = (i === 0 && tpl.intro ? `<div class="chk-body chk-intro">${md(tpl.intro)}</div>` : '') + (pt.intro ? `<div class="chk-body chk-intro">${md(pt.intro)}</div>` : '');
+      const items = pt.items.map((it) => {
+        const done = pmap[it.key] && pmap[it.key].checked;
+        return `<div class="chk-item ${done ? 'done' : ''}" data-item="${attr(it.key)}">
+          <button class="chk-box" data-check="${attr(it.key)}" aria-pressed="${done ? 'true' : 'false'}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">${I.check}</svg></button>
+          <span class="chk-key">${esc(it.num)}</span>
+          <div class="chk-main">
+            <div class="txt">${esc(it.title)}</div>
+            <div class="chk-body">${md(it.body)}</div>
+          </div>
+        </div>`;
+      }).join('');
+      return `<details class="chk-part" id="chk-part-${i}" data-part-idx="${i}" ${i === 0 ? 'open' : ''}>
+        <summary class="chk-part-summary">
+          <span class="chk-caret">${svg('chevron', 13)}</span>
+          <span class="part-roman">${roman(i)}</span>
+          <span class="chk-part-title">${cleanT(pt.title)}</span>
+          <span class="part-frac" data-pfrac="${i}">${st.done}/${st.total}</span>
+          <button class="btn sm chk-markall" data-markpart="${i}" title="Mark all in this section">${svg('check', 11)}</button>
+        </summary>
+        <div class="chk-part-body">${introHTML}${items}</div>
+      </details>`;
+    }).join('');
+
+    const jumpList = tpl.parts.map((pt, i) => {
+      const st = partStats[i];
+      return `<button class="part-btn" data-jump="${i}">
+        <span class="part-roman">${roman(i)}</span>
+        <span class="nm">${cleanT(pt.title)}</span>
+        <span class="part-frac" data-jfrac="${i}">${st.done}/${st.total}</span>
+      </button>`;
+    }).join('');
+
+    return `
+      <div class="chk-scopebar">
+        <span class="lbl">Scope</span>
+        <div class="chk-scope-dd" id="chk-scope-dd">
+          <button class="chk-scope-btn" data-scope-toggle aria-haspopup="listbox">
+            <span class="cst-name mono">${esc(scope)}</span>
+            <span class="cst-pct">${scopePct}%</span>
+            <span class="dd-caret">${svg('chevron', 14)}</span>
+          </button>
+          <div class="chk-scope-menu chk-scope-tree" role="listbox">${scopeTreeHTML}</div>
+        </div>
+        <span class="hint muted-2 mini right">pick a domain or subdomain — progress saved per scope</span>
+      </div>
+      <div class="chk-wrap2">
+        <div class="chk-all">${partsHTML}</div>
+        <aside class="chk-side">
+          <div class="chk-ring">
+            <div class="ring">${ringSvg(scopePct, 64, 7)}<div class="n">${scopePct}%</div></div>
+            <div class="meta"><span class="nm">${esc(scope)}</span><span class="sub"><b>${doneItems}</b> of ${totalItems} checked</span></div>
+          </div>
+          <details class="chk-parts-dd" open>
+            <summary>Jump to section <span class="mono mini muted-2">${tpl.parts.length}</span> ${svg('chevron', 12)}</summary>
+            <div class="chk-parts-scroll">${jumpList}</div>
+          </details>
+        </aside>
+      </div>`;
+  }
+
+  // Recompute all fractions + the ring purely from the DOM (no refetch) after a toggle.
+  function updateChecklistCounts(root, tpl) {
+    let total = 0, totalDone = 0;
+    $$('.chk-part', root).forEach((det) => {
+      const i = det.dataset.partIdx;
+      const boxes = $$('[data-check]', det);
+      const done = boxes.filter((b) => b.getAttribute('aria-pressed') === 'true').length;
+      total += boxes.length; totalDone += done;
+      const pf = $('[data-pfrac="' + i + '"]', root); if (pf) pf.textContent = done + '/' + boxes.length;
+      const jf = $('[data-jfrac="' + i + '"]', root); if (jf) jf.textContent = done + '/' + boxes.length;
+    });
+    const pct = Math.round(totalDone / (total || 1) * 100);
+    const nEl = $('.chk-ring .ring .n', root); if (nEl) nEl.textContent = pct + '%';
+    const sub = $('.chk-ring .meta .sub', root); if (sub) sub.innerHTML = '<b>' + totalDone + '</b> of ' + total + ' checked';
+    const arc = $('.chk-ring .ring svg .arc', root); if (arc) { const C = 2 * Math.PI * 27; arc.setAttribute('stroke-dasharray', (pct / 100 * C).toFixed(1) + ' ' + C.toFixed(1)); }
+  }
+
+  function wireChecklistCore(root, pid, tpl, scope, opts) {
+    const saveCheck = async (key, checked) => { await POST('/api/programs/' + pid + '/checklist', { scope, item_key: key, checked }); };
+    // scope dropdown: button toggles the menu; caret expands a domain; a node selects the scope
+    const dd = $('#chk-scope-dd', root);
+    const toggleBtn = $('[data-scope-toggle]', root);
+    if (toggleBtn && dd) toggleBtn.onclick = (e) => { e.stopPropagation(); dd.classList.toggle('open'); };
+    // close the menu on outside click (one shared listener, replaced each render)
+    if (checklistScopeCloser) document.removeEventListener('click', checklistScopeCloser);
+    checklistScopeCloser = (e) => { const d = $('#chk-scope-dd'); if (d && d.classList.contains('open') && !d.contains(e.target)) d.classList.remove('open'); };
+    document.addEventListener('click', checklistScopeCloser);
+    $$('[data-cst-toggle]', root).forEach((b) => b.onclick = (e) => { e.stopPropagation(); const dm = b.closest('.cst-dom'); if (dm) dm.classList.toggle('open'); });
+    $$('[data-cst-scope]', root).forEach((b) => b.onclick = () => { if (dd) dd.classList.remove('open'); if (b.dataset.cstScope !== scope) opts.onScope(b.dataset.cstScope); });
+    $$('[data-check]', root).forEach((b) => b.onclick = async () => {
+      const key = b.dataset.check, item = $('.chk-item[data-item="' + cssq(key) + '"]', root);
+      const now = !(b.getAttribute('aria-pressed') === 'true');
+      b.setAttribute('aria-pressed', now ? 'true' : 'false');
+      if (item) item.classList.toggle('done', now);
+      updateChecklistCounts(root, tpl);
+      try { await saveCheck(key, now); } catch (e) { toast(e.message, 'err'); }
+    });
+    $$('[data-jump]', root).forEach((b) => b.onclick = () => {
+      const det = $('#chk-part-' + b.dataset.jump, root);
+      if (det) { det.open = true; det.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    });
+    // mark-all lives inside the <summary>; stop it from toggling the dropdown
+    $$('[data-markpart]', root).forEach((b) => b.onclick = async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const det = $('#chk-part-' + b.dataset.markpart, root);
+      for (const box of $$('[data-check]', det)) {
+        if (box.getAttribute('aria-pressed') !== 'true') {
+          box.setAttribute('aria-pressed', 'true');
+          const it = box.closest('.chk-item'); if (it) it.classList.add('done');
+          try { await saveCheck(box.dataset.check, true); } catch (er) {}
+        }
+      }
+      updateChecklistCounts(root, tpl);
+      toast('Section marked done');
+    });
+  }
+
+  async function mountChecklist(container, pid) {
+    const tpl = window.CHECKLIST_TEMPLATE;
+    if (!tpl) { container.innerHTML = '<div class="muted mini">Checklist unavailable.</div>'; return; }
+    let d;
+    try { d = await GET('/api/programs/' + pid); } catch (e) { container.innerHTML = '<div class="muted mini">' + esc(e.message) + '</div>'; return; }
+    const scopeTree = buildScopeTree(d);
+    const scopeVals = scopeTreeValues(scopeTree);
+    let scope = scopeVals[0];
+    async function render() {
+      let progress = [];
+      try { progress = await GET('/api/programs/' + pid + '/checklist'); } catch (e) {}
+      if (!scopeVals.includes(scope)) scope = scopeVals[0];
+      container.innerHTML = checklistBodyHTML(tpl, scopeTree, scope, progress);
+      animateIn(container);
+      wireChecklistCore(container, pid, tpl, scope, { onScope: (sc) => { scope = sc; render(); } });
+    }
+    await render();
+  }
+
+  VIEWS.checklist = async function (q) {
+    const pid = await pickProgram(q.program);
+    if (!pid) return renderNoProgram('checklist', 'Testing checklist');
+    if (q.program !== pid) { setQuery({ program: pid }); return; }
+    const tpl = window.CHECKLIST_TEMPLATE;
+    if (!tpl) return renderNoProgram('checklist', 'Testing checklist');
+    const p = (S.programs.find((x) => x.id === pid)) || (await GET('/api/programs/' + pid)).program;
+    paint('checklist', [{ label: esc(p.name) }, { cur: 'Testing checklist' }], `${progSwitcher(pid, true)}`, '<div id="chk-root"></div>');
+    wireProgSwitcher('checklist');
+    await mountChecklist($('#chk-root'), pid);
+  };
+  function cssq(s) { return String(s).replace(/"/g, '\\"'); }
+
+  function ringSvg(pct, size, sw) {
+    const r = (size - sw) / 2, C = 2 * Math.PI * r, c = size / 2;
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="#333a47" stroke-width="${sw}"/>
+      <circle class="arc" cx="${c}" cy="${c}" r="${r}" fill="none" stroke="#a78bfa" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${(pct / 100 * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 ${c} ${c})"/></svg>`;
+  }
+
+  // ============================================================================
+  //  Findings (+ detail aside)
+  // ============================================================================
+  VIEWS.findings = async function (q) {
+    const status = q.status || 'all';
+    let list = await GET('/api/findings' + (status !== 'all' ? '?status=' + encodeURIComponent(status) : ''));
+    const all = status !== 'all' ? await GET('/api/findings') : list;
+    const counts = {}; all.forEach((f) => counts[f.status] = (counts[f.status] || 0) + 1);
+
+    const tabs = [['all', 'All', all.length]].concat(FINDING_STATUSES.concat(['Rejected', 'Duplicate']).map((s) => [s, s, counts[s] || 0]))
+      .map(([id, label, n]) => `<button class="tab ${status === id ? 'on' : ''}" data-status="${id}">${label} <span class="n">${n}</span></button>`).join('');
+
+    const rows = list.map((f) => `
+      <button class="tbl-row ${q.open === f.id ? 'sel' : ''}" data-fopen="${f.id}" style="grid-template-columns:60px 2fr 1.2fr 1fr 90px 56px 80px 90px 80px">
+        <span class="num muted-2 mini">${f.id.slice(0, 5)}</span>
+        <span class="cell-title">${esc(f.title)}</span>
+        <span class="cell-mut mini">${esc(f.subdomain_host || f.asset_name || f.program_name || '—')}</span>
+        <span class="cell-mut mini">${esc(f.vuln_class || '—')}</span>
+        <span><span class="sev sev-${esc(f.severity)}">${esc(f.severity)}</span></span>
+        <span class="num mini">${f.cvss != null ? f.cvss : '—'}</span>
+        <span class="num muted-2 mini">${esc(f.cwe || '—')}</span>
+        <span><span class="st ${stClass(f.status)}">${esc(f.status)}</span></span>
+        <span class="num right">${f.bounty ? money(f.bounty) : '—'}</span>
+      </button>`).join('') || `<div class="empty"><div class="big">No findings ${status !== 'all' ? 'with status ' + status : 'yet'}</div><button class="btn primary" data-newfinding2>${svg('plus', 14)} Log finding</button></div>`;
+
+    const body = `
+      <div class="tabs">${tabs}</div>
+      <div style="display:flex;gap:16px;align-items:flex-start;flex-grow:1;min-height:0">
+        <div class="tbl" style="flex-grow:1">
+          <div class="tbl-head" style="grid-template-columns:60px 2fr 1.2fr 1fr 90px 56px 80px 90px 80px">
+            <span>ID</span><span>Title</span><span>Where</span><span>Class</span><span>Severity</span><span>CVSS</span><span>CWE</span><span>Status</span><span class="right">Bounty</span>
+          </div>
+          ${rows}
+        </div>
+        <div id="finding-detail" style="width:340px;flex-shrink:0"></div>
+      </div>`;
+
+    const right = `<span class="topbar-note">${list.length} shown</span>`;
+    paint('findings', [{ label: 'Workspace' }, { cur: 'Findings' }], right, body);
+    $$('[data-status]').forEach((b) => b.onclick = () => setQuery({ status: b.dataset.status === 'all' ? '' : b.dataset.status }));
+    $$('[data-fopen]').forEach((b) => b.onclick = () => setQuery(Object.assign({}, q, { open: b.dataset.fopen })));
+    const nf2 = $('[data-newfinding2]'); if (nf2) nf2.onclick = () => newFindingModal();
+    if (q.open) showFindingDetail(q.open, q);
+  };
+
+  async function showFindingDetail(fid, q) {
+    const box = $('#finding-detail'); if (!box) return;
+    box.innerHTML = `<div class="card"><div class="loading" style="padding:20px">loading…</div></div>`;
+    let d;
+    try { d = await GET('/api/findings/' + fid); } catch (e) { toast(e.message, 'err'); return; }
+    if (!d || !d.finding) { box.innerHTML = ''; return; }
+    const f = d.finding;
+    const fields = [
+      ['Program', f.program_name], ['Asset', f.asset_name || '—'], ['Where', f.subdomain_host || '—'],
+      ['Class', f.vuln_class || '—'], ['CWE', f.cwe || '—'], ['CVSS', f.cvss != null ? f.cvss : '—'],
+      ['Bounty', f.bounty ? money(f.bounty) : '$0'], ['Found', fmtDate(f.discovered_at)],
+    ];
+    const pipe = FINDING_STATUSES.map((s) => {
+      const on = FINDING_STATUSES.indexOf(s) <= FINDING_STATUSES.indexOf(f.status);
+      return `<button class="stage ${f.status === s ? 'on' : on ? 'on' : ''}" data-setstatus="${s}" style="${f.status === s ? 'border-color:var(--em)' : ''}"><span class="sdot" style="${on ? 'background:var(--em)' : ''}"></span><span class="slbl">${s}</span>${f.status === s ? '<span class="mono mini" style="color:var(--em)">current</span>' : ''}</button>`;
+    }).join('');
+
+    box.innerHTML = `
+      <div class="card" style="gap:14px;position:sticky;top:0">
+        <div class="row-flex"><span class="mono mini muted-2">${f.id.slice(0, 6)}</span><span class="sev sev-${esc(f.severity)}">${esc(f.severity)}</span><span class="right mono mini muted-2">esc</span></div>
+        <h2 style="font-size:16px;font-weight:600;margin:0">${esc(f.title)}</h2>
+        <div class="meta-grid">${fields.map(([k, v]) => `<div class="meta-cell"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join('')}</div>
+        <div class="field"><label>Observation</label><div class="chk-body" style="margin:0;color:var(--ink-3)">${md(f.observation || '_No observation recorded._')}</div></div>
+        <div class="field"><label>Status pipeline</label><div style="display:flex;flex-direction:column;gap:6px">${pipe}</div></div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${d.report
+        ? `<a class="btn primary sm" href="#/reports?open=${d.report.id}">Open report →</a>`
+        : `<button class="btn primary sm" data-makereport>${svg('reports', 12)} Create report from finding <span class="k">R</span></button>`}
+          <div class="row-flex"><button class="btn sm" data-editfinding>${svg('edit', 12)} Edit</button><button class="btn sm danger right" data-delfinding>${svg('trash', 12)} Delete</button></div>
+        </div>
+      </div>`;
+    animateIn(box);
+
+    $$('[data-setstatus]', box).forEach((b) => b.onclick = async () => {
+      try { await PATCH('/api/findings/' + fid, { status: b.dataset.setstatus }); toast('Status → ' + b.dataset.setstatus); route(); } catch (e) { toast(e.message, 'err'); }
+    });
+    const mk = $('[data-makereport]', box); if (mk) mk.onclick = () => createReportFromFinding(f);
+    $('[data-editfinding]', box).onclick = () => newFindingModal(f, true);
+    $('[data-delfinding]', box).onclick = async () => {
+      if (!(await confirmDialog({ title: 'Delete finding?', body: esc(f.title), confirm: 'Delete', danger: true }))) return;
+      try { await DEL('/api/findings/' + fid); toast('Finding deleted'); setQuery({ status: q.status || '' }); } catch (e) { toast(e.message, 'err'); }
+    };
+  }
+
+  // Open the report bound to an asset/subdomain — reuse an existing one, else create it.
+  async function openReportForTarget(kind, id, programId, label) {
+    const key = kind === 'asset' ? 'asset_id' : 'subdomain_id';
+    try {
+      const existing = await GET('/api/reports?' + key + '=' + encodeURIComponent(id));
+      if (existing && existing.length) { go('#/reports?open=' + existing[0].id); return; }
+      const body = `# ${label}\n\n## Summary\n\n\n\n## Affected asset\n\n\`${label}\`\n\n## Steps to reproduce\n\n1. \n2. \n\n## Proof of concept\n\n\`\`\`http\nGET / HTTP/2\nHost: ${label}\n\`\`\`\n\n## Impact\n\n\n\n## Remediation\n\n`;
+      const payload = { program_id: programId, title: label + ' — report', body, status: 'Draft', folder: 'Drafts' };
+      payload[key] = id;
+      const r = await POST('/api/reports', payload);
+      toast('Report created for ' + label);
+      go('#/reports?open=' + r.id);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  async function createReportFromFinding(f) {
+    const target = f.subdomain_host || f.asset_name || '';
+    const body = `# ${f.title}\n\n## Summary\n\n${f.observation || 'A concise, impact-first description of the vulnerability.'}\n\n## Affected asset\n\n\`${target}\`\n\n## Severity\n\n${f.severity}\n\n## Steps to reproduce\n\n1. \n2. \n3. \n\n## Proof of concept\n\n\`\`\`http\nGET /path HTTP/2\nHost: ${target || 'example.com'}\nAuthorization: Bearer [REDACTED]\n\`\`\`\n\n## Impact\n\n\n\n## Remediation\n\n\n\n## References\n\n${f.cwe ? '- ' + f.cwe : ''}\n`;
+    try {
+      const r = await POST('/api/reports', { finding_id: f.id, program_id: f.program_id, title: f.title, body, severity: f.severity, cvss: f.cvss, cwe: f.cwe, bounty: f.bounty || 0, status: 'Draft', folder: 'Drafts' });
+      toast('Report drafted'); go('#/reports?open=' + r.id);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  // The report IS the finding's writeup — open the finding's report, creating it if needed.
+  async function openReportForFinding(fid) {
+    try {
+      const d = await GET('/api/findings/' + fid);
+      if (d.report) { go('#/reports?open=' + d.report.id); return; }
+      if (d.finding) await createReportFromFinding(d.finding);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  // Program "Findings" tab — findings for THIS program only, with the asset/subdomain they
+  // were found on, inline status, and a bounty field once accepted. Clicking opens the report.
+  // In this app a finding IS a report. The program "Findings" tab lists the program's REPORTS,
+  // with inline status/severity and a bounty field once accepted; clicking opens the editor.
+  const REPORT_STATUSES = ['Draft', 'Submitted', 'Triaged', 'Accepted', 'Resolved', 'Rejected'];
+  async function mountProgramFindings(container, pid) {
+    const ACCEPTED = ['Accepted', 'Resolved'];
+    let list = [];
+    async function reload() {
+      try { list = await GET('/api/reports?program_id=' + encodeURIComponent(pid)); } catch (e) { container.innerHTML = '<div class="muted mini">' + esc(e.message) + '</div>'; return; }
+      render();
+    }
+    function render() {
+      const rows = list.map((r) => {
+        const where = r.subdomain_host || r.asset_name || '—';
+        const accepted = ACCEPTED.includes(r.status);
+        const statusOpts = REPORT_STATUSES.map((s) => `<option ${r.status === s ? 'selected' : ''}>${s}</option>`).join('');
+        return `<div class="pf-row">
+          <button class="linklike pf-title" data-openrep="${r.id}" title="Open report">${esc(r.title)}</button>
+          <span class="mono mini muted-2 pf-where">${esc(where)}</span>
+          <span>${r.severity ? `<span class="sev sev-${esc(r.severity)}">${esc(r.severity)}</span>` : '<span class="muted-2 mini">—</span>'}</span>
+          <select class="inp pf-status" data-rstatus="${r.id}">${statusOpts}</select>
+          <span class="pf-bounty">${accepted
+          ? `<input class="inp pf-bounty-in" data-rbounty="${r.id}" type="number" min="0" step="50" value="${r.bounty || 0}" placeholder="$ bounty" title="Bounty awarded" />`
+          : (r.bounty ? `<span class="mono">${money(r.bounty)}</span>` : '<span class="muted-2 mini">—</span>')}</span>
+          <button class="btn sm" data-openrep="${r.id}">${svg('reports', 12)} Open</button>
+          <button class="icon-btn danger" data-delrep="${r.id}" title="Delete report">${svg('trash', 13)}</button>
+        </div>`;
+      }).join('') || '<div class="muted mini" style="padding:14px">No reports yet. Create one with “New report”.</div>';
+      container.innerHTML = `
+        <div class="section-h"><h3>Findings</h3><span class="count">${list.length}</span>
+          <button class="btn primary sm right" data-newrep>${svg('plus', 12)} New report</button></div>
+        <div class="pf-list">
+          <div class="pf-head"><span>Title</span><span>Where</span><span>Severity</span><span>Status</span><span>Bounty</span><span></span><span></span></div>
+          ${rows}
+        </div>
+        <div class="mini muted-2" style="margin-top:8px">Set status to <b>Accepted</b> to record the bounty. Clicking a report opens the editor.</div>`;
+      animateIn(container);
+      $('[data-newrep]', container).onclick = () => createBlankReport(pid);
+      $$('[data-openrep]', container).forEach((b) => b.onclick = () => go('#/reports?open=' + b.dataset.openrep));
+      $$('[data-rstatus]', container).forEach((sel) => sel.onchange = async () => {
+        const st = sel.value, folder = st === 'Draft' ? 'Drafts' : st;
+        try { await PATCH('/api/reports/' + sel.dataset.rstatus, { status: st, folder }); toast('Status → ' + st); reload(); } catch (e) { toast(e.message, 'err'); }
+      });
+      $$('[data-rbounty]', container).forEach((inp) => {
+        const save = debounce(async () => { try { await PATCH('/api/reports/' + inp.dataset.rbounty, { bounty: parseFloat(inp.value) || 0 }); } catch (e) { toast(e.message, 'err'); } }, 600);
+        inp.oninput = save;
+      });
+      $$('[data-delrep]', container).forEach((b) => b.onclick = async () => {
+        if (!(await confirmDialog({ title: 'Delete report?', confirm: 'Delete', danger: true }))) return;
+        try { await DEL('/api/reports/' + b.dataset.delrep); toast('Report deleted'); reload(); } catch (e) { toast(e.message, 'err'); }
+      });
+    }
+    await reload();
+  }
+
+  // "New report" — a quick modal (title + optional scope binding + severity), then open the editor.
+  // "New report" — no modal: create a blank report and drop straight into the editor.
+  async function createBlankReport(pid) {
+    await ensurePrograms();
+    const programId = pid || S.currentProgram || (S.programs[0] && S.programs[0].id);
+    if (!programId) { toast('Create a program first', 'info'); return newProgramModal(); }
+    try {
+      const r = await POST('/api/reports', {
+        program_id: programId, title: 'Untitled report', severity: 'Medium', status: 'Draft', folder: 'Drafts',
+        body: '# Untitled report\n\n## Summary\n\n\n\n## Affected asset\n\n``\n\n## Steps to reproduce\n\n1. \n2. \n\n## Proof of concept\n\n```http\nGET / HTTP/2\nHost: \n```\n\n## Impact\n\n\n\n## Remediation\n\n',
+      });
+      go('#/reports?open=' + r.id);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  // ============================================================================
+  //  Reports (folder list + editor + rail)
+  // ============================================================================
+  const FOLDERS = ['Drafts', 'Submitted', 'Accepted', 'Resolved', 'Favorites'];
+  VIEWS.reports = async function (q) {
+    const folder = q.folder || 'All';
+    const all = await GET('/api/reports');
+    const list = folder === 'All' ? all : folder === 'Favorites' ? all.filter((r) => r.is_favorite) : all.filter((r) => r.folder === folder || r.status === folder);
+    const openId = q.open || (list[0] && list[0].id);
+
+    const folderBtns = [['All', 'All reports', all.length]].concat(
+      FOLDERS.map((f) => [f, f, f === 'Favorites' ? all.filter((r) => r.is_favorite).length : all.filter((r) => r.folder === f || r.status === f).length]))
+      .map(([id, label, n]) => `<button class="folder ${folder === id ? 'on' : ''}" data-folder="${id}">${svg('folder', 14)} ${esc(label)} <span class="n">${n}</span></button>`).join('');
+
+    const cards = list.map((r) => `
+      <button class="rep-card ${openId === r.id ? 'on' : ''}" data-repopen="${r.id}">
+        <div class="rep-card-top"><span class="id mono">${r.id.slice(0, 6)}</span>${r.is_favorite ? '<span style="color:var(--am)">' + svg('star', 11, { fill: 'var(--am)' }) + '</span>' : ''}<span class="st ${stClass(r.status)} right">${esc(r.status)}</span></div>
+        <span class="ttl">${esc(r.title)}</span>
+        <span class="meta">${esc(r.program_name || '—')} · ${r.word_count || 0}w · ${timeAgo(r.updated_at)}</span>
+      </button>`).join('') || '<div class="muted mini" style="padding:16px;text-align:center">No reports here.</div>';
+
+    const body = `
+      <div class="rep-layout">
+        <div class="rep-folders">
+          <div class="rep-folders-h"><span class="t">Reports</span><span class="mono mini muted-2 right">G R</span></div>
+          <div class="folder-list">${folderBtns}</div>
+          <div class="rep-list">${cards}</div>
+        </div>
+        <div class="rep-main" id="rep-main"><div class="loading">select a report</div></div>
+      </div>`;
+
+    const right = `<button class="btn primary" data-newreport>${svg('plus', 14, { sw: 2.4 })} New report</button>`;
+    paint('reports', [{ label: 'Workspace' }, { cur: 'Reports' }], right, body, { flush: true });
+    $('[data-newreport]').onclick = () => createBlankReport();
+    $$('[data-folder]').forEach((b) => b.onclick = () => setQuery({ folder: b.dataset.folder === 'All' ? '' : b.dataset.folder }));
+    $$('[data-repopen]').forEach((b) => b.onclick = () => setQuery({ folder: q.folder || '', open: b.dataset.repopen }));
+    if (openId) renderReportEditor(openId, q); else $('#rep-main').innerHTML = `<div class="empty"><div class="big">No report selected</div></div>`;
+  };
+
+  async function renderReportEditor(rid, q) {
+    const main = $('#rep-main'); if (!main) return;
+    let d;
+    try { d = await GET('/api/reports/' + rid); } catch (e) { toast(e.message, 'err'); return; }
+    const r = d.report;
+    if (!r) { main.innerHTML = `<div class="empty"><div class="big">Report not found</div></div>`; return; }
+
+    const sevs = SEV_ORDER.map((s) => `<button class="radio ${r.severity === s ? 'on' : ''}" data-sev="${s}" style="${r.severity === s ? 'border-color:' + SEV_COLOR[s] + ';color:' + SEV_COLOR[s] : ''}">${s}</button>`).join('');
+    const stages = [['Draft', 'Draft'], ['Submitted', 'Submitted'], ['Triaged', 'Triaged'], ['Accepted', 'Accepted'], ['Resolved', 'Resolved']]
+      .map(([id, label]) => `<button class="stage ${r.status === id ? 'on' : ''}" data-repstatus="${id}"><span class="sdot"></span><span class="slbl">${label}</span>${r.status === id ? '<span class="mono mini" style="color:var(--em)">now</span>' : ''}</button>`).join('');
+    const ledger = [
+      ['Program', r.program_name || '—'], ['Platform', r.submission_platform || '—'], ['Severity', r.severity || '—'],
+      ['CVSS', r.cvss != null ? r.cvss : '—'], ['CWE', r.cwe || '—'], ['Bounty', r.bounty ? money(r.bounty) : '$0'],
+      ['Submitted', r.submitted_at ? fmtDate(r.submitted_at) : 'not yet'],
+    ];
+
+    main.innerHTML = `
+      <div class="rep-head">
+        <span class="id">${r.id.slice(0, 6)}</span>
+        <button class="icon-btn" data-fav style="color:${r.is_favorite ? 'var(--am)' : 'var(--muted)'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="${r.is_favorite ? 'var(--am)' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linejoin="round">${I.star}</svg></button>
+        <input class="rep-title-input" id="rep-title" value="${attr(r.title)}" />
+        <span class="rep-saved" id="rep-saved"><span id="rep-wc">${r.word_count || 0}w</span> · saved ${timeAgo(r.updated_at)} ago</span>
+        <button class="btn sm" data-clone>${svg('copy', 12)} Clone</button>
+        <button class="btn sm" data-export>${svg('download', 12)} Export</button>
+        <button class="btn primary sm" data-submit>Mark submitted</button>
+      </div>
+      <div class="rep-sub">
+        <span class="lbl">Bound to</span>
+        ${r.subdomain_host ? `<span class="badge" style="border-color:var(--border-2);color:var(--ink-3)">${svg('assets', 10)} ${esc(r.subdomain_host)}</span>`
+        : r.asset_name ? `<span class="badge" style="border-color:var(--border-2);color:var(--ink-3)">${svg('assets', 10)} ${esc(r.asset_name)}</span>`
+          : r.finding_id ? `<a href="#/findings?open=${r.finding_id}">finding ${r.finding_id.slice(0, 6)}</a>`
+            : '<span class="muted-2">standalone</span>'}
+        ${r.program_name ? `<span class="muted-2 mini">· ${esc(r.program_name)}</span>` : ''}
+        <span class="right muted-2 mini">markdown · live preview · scroll-synced</span>
+      </div>
+      <div class="rep-editor">
+        <section class="rep-src">
+          <div class="rep-pane-h">
+            <span class="fn">report.md</span>
+            <button class="tool" data-md="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+            <button class="tool" data-md="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+            <button class="tool" data-md="code" title="Code">{ }</button>
+            <button class="tool" data-attach title="Attach image or video">${svg('plus', 12)} attach</button>
+            <button class="tool" data-copy title="Copy markdown">${svg('copy', 12)} copy</button>
+            <input type="file" id="rep-file" accept=".png,.jpg,.jpeg,.mp4,.mkv,image/png,image/jpeg,video/mp4,video/x-matroska" hidden />
+            <span class="right" id="rep-lines">0 lines</span>
+          </div>
+          <textarea id="rep-body" spellcheck="false" placeholder="Write the report… (drag an image/video in, or use Attach)">${esc(r.body || '')}</textarea>
+        </section>
+        <section class="rep-preview">
+          <div class="rep-pane-h"><span>Preview</span><span class="tool right">rendered</span></div>
+          <article class="md" id="rep-prev">${md(r.body)}</article>
+        </section>
+        <aside class="rep-rail">
+          <div class="rail-sec"><span class="rlbl">Severity</span><div class="radiogroup">${sevs}</div></div>
+          <div class="rail-sec"><span class="rlbl">Report status</span>${stages}</div>
+          ${['Accepted', 'Resolved'].includes(r.status) ? `<div class="rail-sec"><span class="rlbl">Bounty awarded</span>
+            <div class="pwrap"><span class="mono muted">$</span><input class="inp" id="rep-bounty" type="number" min="0" step="50" value="${r.bounty || 0}" placeholder="amount" /></div></div>` : ''}
+          <div class="rail-sec"><span class="rlbl">Ledger</span><div class="rail-metrics">${ledger.map(([k, v]) => `<div class="m"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join('')}</div></div>
+          <div class="rail-sec"><button class="btn sm danger" data-delreport>${svg('trash', 12)} Delete report</button></div>
+        </aside>
+      </div>`;
+    animateIn(main);
+
+    const bodyEl = $('#rep-body'), prev = $('#rep-prev'), lines = $('#rep-lines'), saved = $('#rep-saved'), wc = $('#rep-wc');
+    const updLines = () => lines.textContent = (bodyEl.value.split('\n').length) + ' lines';
+    updLines();
+    const saveBody = debounce(async () => {
+      try {
+        await PATCH('/api/reports/' + rid, { body: bodyEl.value });
+        const w = bodyEl.value.trim() ? bodyEl.value.trim().split(/\s+/).length : 0;
+        wc.textContent = w + 'w'; saved.innerHTML = `<span id="rep-wc">${w}w</span> · saved just now`;
+      } catch (e) { toast(e.message, 'err'); }
+    }, 700);
+    const onBodyChange = () => { prev.innerHTML = md(bodyEl.value); updLines(); saved.innerHTML = '<span id="rep-wc">' + wc.textContent + '</span> · saving…'; saveBody(); };
+    bodyEl.oninput = onBodyChange;
+    // insert text at the caret (used by toolbar + attachments)
+    const insertAtCaret = (text) => {
+      const s = bodyEl.selectionStart, e = bodyEl.selectionEnd, v = bodyEl.value;
+      bodyEl.value = v.slice(0, s) + text + v.slice(e);
+      bodyEl.selectionStart = bodyEl.selectionEnd = s + text.length;
+      bodyEl.focus(); onBodyChange();
+    };
+    const wrapSel = (before, after) => {
+      const s = bodyEl.selectionStart, e = bodyEl.selectionEnd, v = bodyEl.value, sel = v.slice(s, e) || 'text';
+      bodyEl.value = v.slice(0, s) + before + sel + after + v.slice(e);
+      bodyEl.selectionStart = s + before.length; bodyEl.selectionEnd = s + before.length + sel.length;
+      bodyEl.focus(); onBodyChange();
+    };
+    $$('[data-md]').forEach((b) => b.onclick = () => {
+      if (b.dataset.md === 'bold') wrapSel('**', '**');
+      else if (b.dataset.md === 'italic') wrapSel('*', '*');
+      else if (b.dataset.md === 'code') wrapSel('`', '`');
+    });
+    // Ctrl+B / Ctrl+I in the textarea
+    bodyEl.onkeydown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); wrapSel('**', '**'); }
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); wrapSel('*', '*'); }
+    };
+    // copy the markdown
+    $('[data-copy]').onclick = async () => {
+      try { await navigator.clipboard.writeText(bodyEl.value); toast('Report markdown copied'); }
+      catch (e) { bodyEl.select(); document.execCommand('copy'); toast('Copied'); }
+    };
+    // attach image / video → upload → insert markdown → preview shows it
+    const fileInput = $('#rep-file');
+    const ALLOWED_UPLOAD = /\.(png|jpe?g|mp4|mkv)$/i;
+    const uploadAndInsert = async (file) => {
+      if (!file) return;
+      if (!ALLOWED_UPLOAD.test(file.name || '')) return toast('Only PNG, JPG, MP4 or MKV files are allowed', 'err');
+      if (file.size > 1024 * 1024 * 1024) return toast('File too large (max 1 GB)', 'err');
+      toast('Uploading ' + file.name + '…', 'info');
+      try {
+        // send the raw file body — the browser streams it, so there is no base64
+        // memory blow-up even for a 1 GB video. The server validates by magic bytes.
+        const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+        const up = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(up.error || ('Upload failed (' + res.status + ')'));
+        const isVideo = /^video\//.test(up.type || '') || /\.(mp4|mkv)$/i.test(up.url);
+        insertAtCaret('\n\n![' + (isVideo ? 'video' : (file.name || 'image')) + '](' + up.url + ')\n\n');
+        toast('Attached ' + file.name);
+      } catch (e) { toast(e.message || 'Upload failed', 'err'); }
+    };
+    $('[data-attach]').onclick = () => fileInput.click();
+    fileInput.onchange = () => { if (fileInput.files[0]) uploadAndInsert(fileInput.files[0]); fileInput.value = ''; };
+    // drag & drop + paste into the editor
+    bodyEl.ondragover = (e) => { e.preventDefault(); bodyEl.classList.add('drop'); };
+    bodyEl.ondragleave = () => bodyEl.classList.remove('drop');
+    bodyEl.ondrop = (e) => { e.preventDefault(); bodyEl.classList.remove('drop'); if (e.dataTransfer.files[0]) uploadAndInsert(e.dataTransfer.files[0]); };
+    bodyEl.onpaste = (e) => { const f = [...(e.clipboardData.files || [])][0]; if (f && /^(image|video)\//.test(f.type)) { e.preventDefault(); uploadAndInsert(f); } };
+    $('#rep-title').onchange = async (e) => { try { await PATCH('/api/reports/' + rid, { title: e.target.value }); toast('Title saved'); } catch (er) { toast(er.message, 'err'); } };
+    $('[data-fav]').onclick = async () => { try { await PATCH('/api/reports/' + rid, { is_favorite: !r.is_favorite }); renderReportEditor(rid, q); } catch (e) { toast(e.message, 'err'); } };
+    $$('[data-sev]').forEach((b) => b.onclick = async () => { try { await PATCH('/api/reports/' + rid, { severity: b.dataset.sev }); renderReportEditor(rid, q); } catch (e) { toast(e.message, 'err'); } });
+    $$('[data-repstatus]').forEach((b) => b.onclick = async () => {
+      const st = b.dataset.repstatus, folder = st === 'Draft' ? 'Drafts' : st;
+      try { await PATCH('/api/reports/' + rid, { status: st, folder }); toast('Status → ' + st); route(); } catch (e) { toast(e.message, 'err'); }
+    });
+    const bountyEl = $('#rep-bounty');
+    if (bountyEl) {
+      const saveB = debounce(async () => {
+        try { await PATCH('/api/reports/' + rid, { bounty: parseFloat(bountyEl.value) || 0 }); const led = $$('.rail-metrics .m').find((m) => m.textContent.trim().startsWith('Bounty')); if (led) $('.v', led).textContent = money(parseFloat(bountyEl.value) || 0); } catch (e) { toast(e.message, 'err'); }
+      }, 500);
+      bountyEl.oninput = saveB;
+    }
+    $('[data-submit]').onclick = async () => { try { await PATCH('/api/reports/' + rid, { status: 'Submitted', folder: 'Submitted' }); toast('Marked submitted'); route(); } catch (e) { toast(e.message, 'err'); } };
+    $('[data-clone]').onclick = async () => { try { const c = await POST('/api/reports/' + rid + '/clone', {}); toast('Cloned'); setQuery({ folder: q.folder || '', open: c.id }); } catch (e) { toast(e.message, 'err'); } };
+    $('[data-export]').onclick = () => {
+      const blob = new Blob([bodyEl.value], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = (r.title || 'report').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.md';
+      a.click(); URL.revokeObjectURL(url); toast('Exported ' + a.download);
+    };
+    $('[data-delreport]').onclick = async () => {
+      if (!(await confirmDialog({ title: 'Delete report?', body: esc(r.title), confirm: 'Delete', danger: true }))) return;
+      try { await DEL('/api/reports/' + rid); toast('Report deleted'); setQuery({ folder: q.folder || '' }); } catch (e) { toast(e.message, 'err'); }
+    };
+  }
+
+  // ============================================================================
+  //  Analytics
+  // ============================================================================
+  // Analytics is merged into the dashboard now — keep the route working as a redirect.
+  VIEWS.analytics = async function () { go('#/dashboard'); };
+
+  function comboChart(data) {
+    const W = 1100, H = 200, left = 42, top = 16, base = 160;
+    const bmax = Math.max(1, ...data.map((d) => d.bounty)) * 1.15;
+    const rmax = Math.max(1, ...data.map((d) => d.reports));
+    const slot = (W - left) / Math.max(1, data.length), bw = Math.min(46, slot * 0.5);
+    const gl = [top, (top + base) / 2, base].map((y, i) => `<line x1="${left}" y1="${y}" x2="${W}" y2="${y}" stroke="${i === 2 ? '#4c566a' : '#333a47'}"/>`).join('');
+    const ax = `<text x="0" y="${top + 4}" fill="#6e7891" font-size="10" font-family="JetBrains Mono, monospace">${kmoney(bmax)}</text><text x="0" y="${(top + base) / 2 + 4}" fill="#6e7891" font-size="10" font-family="JetBrains Mono, monospace">${kmoney(bmax / 2)}</text>`;
+    const bars = data.map((d, i) => {
+      const h = Math.round((d.bounty / bmax) * (base - top)), x = left + i * slot + (slot - bw) / 2;
+      return `<rect x="${x.toFixed(1)}" y="${(base - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h}" rx="3" fill="#4c4370"/>
+        <text x="${(x + bw / 2).toFixed(1)}" y="${base + 18}" fill="#6e7891" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">${esc(d.label)}</text>`;
+    }).join('');
+    const pts = data.map((d, i) => { const cx = left + i * slot + slot / 2, cy = base - (d.reports / rmax) * (base - top); return [cx, cy]; });
+    const line = `<polyline points="${pts.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ')}" fill="none" stroke="#88c0d0" stroke-width="2" stroke-linejoin="round"/>`;
+    const dots = pts.map((p, i) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="#1a1d24" stroke="#88c0d0" stroke-width="2"/>${data[i].reports ? `<text x="${p[0].toFixed(1)}" y="${(p[1] - 8).toFixed(1)}" fill="#a3d4e0" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">${data[i].reports}</text>` : ''}`).join('');
+    return `<svg width="100%" height="${H + 26}" viewBox="0 0 ${W} ${H + 26}" role="img">${gl}${ax}${bars}${line}${dots}</svg>`;
+  }
+
+  // ── no-program placeholder ────────────────────────────────────────────────
+  function renderNoProgram(active, title) {
+    const body = `<div class="empty"><span>${svg('programs', 40)}</span><div class="big">No program selected</div>
+      <div class="muted">Create a program first, then its assets and checklist live here.</div>
+      <button class="btn primary" data-newprog>${svg('plus', 14)} New program</button></div>`;
+    paint(active, [{ cur: title }], '', body);
+    const b = $('[data-newprog]'); if (b) b.onclick = () => newProgramModal();
+  }
+
+  function progSwitcher(pid, compact) {
+    const opts = S.programs.map((p) => `<option value="${p.id}" ${p.id === pid ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+    return `<label class="chip" style="gap:8px"><span class="muted-2 mini">Program</span><select class="prog-switch" style="background:transparent;border:0;color:var(--ink);outline:none;font-size:12px">${opts}</select></label>`;
+  }
+  function wireProgSwitcher(view) {
+    const sel = $('.prog-switch'); if (!sel) return;
+    sel.onchange = () => { setProgram(sel.value); setQuery({ program: sel.value }); };
+  }
+
+  // ============================================================================
+  //  Command palette
+  // ============================================================================
+  let cmdkState = null;
+  function openCmdk() {
+    const o = overlay();
+    cmdkState = { rows: [], active: 0, query: '' };
+    o.insertAdjacentHTML('beforeend', `
+      <div class="cmdk-scrim" data-cmdscrim>
+        <div class="cmdk" role="dialog">
+          <div class="cmdk-input-row">${svg('search', 16, { sw: 2 })}
+            <input id="cmdk-input" placeholder="Type a command, program, asset or finding…" autocomplete="off" />
+            <span class="kbd">Esc</span></div>
+          <div class="cmdk-results" id="cmdk-results"></div>
+          <div class="cmdk-foot"><span><span class="kbd">↑↓</span> navigate</span><span><span class="kbd">↵</span> run</span><span><span class="kbd">&gt;</span> commands</span><span class="count" id="cmdk-count">—</span></div>
+        </div>
+      </div>`);
+    const inp = $('#cmdk-input');
+    const run = debounce(() => cmdkSearch(inp.value), 140);
+    inp.oninput = () => { cmdkState.query = inp.value; run(); };
+    inp.onkeydown = cmdkKeys;
+    $('[data-cmdscrim]', o).onclick = (e) => { if (e.target.hasAttribute('data-cmdscrim')) closeCmdk(); };
+    cmdkSearch('');
+    setTimeout(() => inp.focus(), 10);
+  }
+  function closeCmdk() { const s = $('.cmdk-scrim'); if (s) s.remove(); cmdkState = null; }
+
+  const COMMANDS = [
+    { label: 'Go to Dashboard', sub: 'overview + analytics', keys: 'G D', run: () => go('#/dashboard'), glyph: 'dashboard' },
+    { label: 'Go to Programs', sub: '', keys: 'G P', run: () => go('#/programs'), glyph: 'programs' },
+    { label: 'Go to Reports', sub: '', keys: 'G R', run: () => go('#/reports'), glyph: 'reports' },
+    { label: 'New program', sub: '', keys: '', run: () => { closeCmdk(); newProgramModal(); }, glyph: 'programs' },
+  ];
+
+  async function cmdkSearch(q) {
+    if (!cmdkState) return;
+    const commandsOnly = q.startsWith('>');
+    const term = commandsOnly ? q.slice(1).trim() : q.trim();
+    let groups = [];
+    const cmds = COMMANDS.filter((c) => !term || c.label.toLowerCase().includes(term.toLowerCase()));
+    if (cmds.length) groups.push({ name: 'Commands', rows: cmds });
+    if (!commandsOnly && term) {
+      try {
+        const r = await GET('/api/search?q=' + encodeURIComponent(term));
+        if (r.programs && r.programs.length) groups.push({ name: 'Programs', rows: r.programs.map((p) => ({ label: p.name, sub: p.company || '', keys: '', glyph: 'programs', run: () => go('#/program?id=' + p.id) })) });
+        if (r.findings && r.findings.length) groups.push({ name: 'Findings', rows: r.findings.map((f) => ({ label: f.title, sub: f.severity, keys: '', glyph: 'findings', run: () => go('#/findings?open=' + f.id) })) });
+        if (r.reports && r.reports.length) groups.push({ name: 'Reports', rows: r.reports.map((rep) => ({ label: rep.title, sub: rep.status, keys: '', glyph: 'reports', run: () => go('#/reports?open=' + rep.id) })) });
+      } catch (e) {}
+    }
+    renderCmdk(groups, term);
+  }
+  function renderCmdk(groups, term) {
+    if (!cmdkState) return;
+    const flat = [];
+    let html = '';
+    groups.forEach((g) => {
+      html += `<div class="cmdk-group-label">${esc(g.name)}</div>`;
+      g.rows.forEach((row) => {
+        const i = flat.length; flat.push(row);
+        html += `<div class="cmdk-row" data-ci="${i}"><span class="cmdk-glyph">${svg(row.glyph || 'search', 13)}</span>
+          <span class="lbl">${esc(row.label)}${row.sub ? '<span class="sub">' + esc(row.sub) + '</span>' : ''}</span>
+          <span class="keys">${esc(row.keys || '')}</span></div>`;
+      });
+    });
+    if (!flat.length) html = `<div class="cmdk-empty">No match${term ? '. <b>↵ Create finding “' + esc(term) + '”</b>' : ''}</div>`;
+    cmdkState.rows = flat; cmdkState.active = 0; cmdkState.term = term;
+    $('#cmdk-results').innerHTML = html;
+    $('#cmdk-count').textContent = flat.length + ' results';
+    highlightCmdk();
+    $$('#cmdk-results .cmdk-row').forEach((el) => { el.onclick = () => { const row = cmdkState.rows[+el.dataset.ci]; closeCmdk(); row.run(); }; });
+  }
+  function highlightCmdk() {
+    $$('#cmdk-results .cmdk-row').forEach((el, i) => el.classList.toggle('active', i === cmdkState.active));
+    const act = $('#cmdk-results .cmdk-row.active'); if (act) act.scrollIntoView({ block: 'nearest' });
+  }
+  function cmdkKeys(e) {
+    if (!cmdkState) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeCmdk(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); cmdkState.active = Math.min(cmdkState.rows.length - 1, cmdkState.active + 1); highlightCmdk(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); cmdkState.active = Math.max(0, cmdkState.active - 1); highlightCmdk(); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      const row = cmdkState.rows[cmdkState.active];
+      if (row) { closeCmdk(); row.run(); }
+      else if (cmdkState.term) { closeCmdk(); newFindingModal({ title: cmdkState.term }); }
+    }
+  }
+
+  // ============================================================================
+  //  Modals: new/edit program, finding, asset, subdomains
+  // ============================================================================
+  function modal(html, opts) {
+    opts = opts || {};
+    const o = overlay();
+    const wrap = document.createElement('div');
+    wrap.className = 'modal';
+    wrap.innerHTML = `<div class="modal-box ${opts.wide ? 'wide' : ''}">${html}</div>`;
+    o.appendChild(wrap);
+    wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
+    const x = $('.modal-h .x', wrap); if (x) x.onclick = () => wrap.remove();
+    const first = $('input,select,textarea', wrap); if (first) setTimeout(() => first.focus(), 20);
+    return { wrap, close: () => wrap.remove() };
+  }
+
+  async function newProgramModal() {
+    const m = modal(`
+      <div class="modal-h"><h3>New program</h3><button class="icon-btn x">${svg('close', 12)}</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Name</label><input class="inp" id="np-name" placeholder="Acme Cloud" /></div>
+        <div class="grid-fields">
+          <div class="field"><label>Platform</label><select class="inp" id="np-plat"><option>HackerOne</option><option>Bugcrowd</option><option>Intigriti</option><option>YesWeHack</option><option>Synack</option><option>Immunefi</option><option>Private</option></select></div>
+          <div class="field"><label>Visibility</label><select class="inp" id="np-vis"><option value="PUBLIC">Public</option><option value="VDP">VDP</option><option value="PRIVATE">Private</option><option value="INVITE_ONLY">Invite only</option></select></div>
+        </div>
+        <div class="field"><label>In-scope (domains / URLs / IPs)</label><textarea class="inp" id="np-assets" placeholder="app.acme.com&#10;api.acme.com"></textarea><span class="hint">One per line — each becomes a scope.</span></div>
+        <div class="field"><label>Tags</label><input class="inp" id="np-tags" placeholder="api, oauth, fintech" /></div>
+      </div>
+      <div class="modal-foot"><button class="btn x">Cancel</button><button class="btn primary" id="np-save">Create program</button></div>`);
+    $('.modal-foot .x', m.wrap).onclick = m.close;
+    $('#np-save', m.wrap).onclick = async () => {
+      const name = $('#np-name', m.wrap).value.trim();
+      if (!name) return toast('Name is required', 'err');
+      try {
+        const r = await POST('/api/programs', {
+          name, platform: $('#np-plat', m.wrap).value,
+          visibility: $('#np-vis', m.wrap).value,
+          assets: $('#np-assets', m.wrap).value, tags: $('#np-tags', m.wrap).value,
+        });
+        m.close(); toast('Program created'); await ensurePrograms(true); renderSidebar(); setProgram(r.id); go('#/program?id=' + r.id);
+      } catch (e) { toast(e.message, 'err'); }
+    };
+  }
+
+  function cleanHost(h) {
+    return String(h).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/[\s,]+$/, '');
+  }
+  function guessType(h) {
+    if (/graphql/i.test(h)) return 'GraphQL';
+    if (/(^|\.)api\./i.test(h) || /\bapi\b/i.test(h)) return 'API';
+    if (/android|apk/i.test(h)) return 'Android';
+    if (/ios|apple|testflight/i.test(h)) return 'iOS';
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return 'Network';
+    return 'Web';
+  }
+
+  async function addAssetModal(pid) {
+    const m = modal(`
+      <div class="modal-h"><h3>Add scope</h3><button class="icon-btn x">${svg('close', 12)}</button></div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Domain / URL / IP</label>
+          <textarea class="inp" id="a-hosts" style="min-height:90px" placeholder="test.com&#10;api.test.com&#10;10.0.0.5"></textarea>
+          <span class="hint">One per line. The type (Web / API / IP…) is detected automatically.</span>
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn x">Cancel</button><button class="btn primary" id="a-save">Add</button></div>`);
+    $('.modal-foot .x', m.wrap).onclick = m.close;
+    $('#a-save', m.wrap).onclick = async () => {
+      const raw = $('#a-hosts', m.wrap).value;
+      const hosts = raw.split(/[\n,]+/).map(cleanHost).filter(Boolean);
+      if (!hosts.length) return toast('Enter a domain, URL or IP', 'err');
+      try {
+        for (const host of hosts) {
+          await POST('/api/assets', { program_id: pid, name: host, type: guessType(host), url: 'https://' + host });
+        }
+        m.close(); toast(hosts.length > 1 ? hosts.length + ' scopes added' : 'Scope added'); await ensurePrograms(true); route();
+      } catch (e) { toast(e.message, 'err'); }
+    };
+  }
+
+  async function addSubModal(assetId, pid) {
+    const m = modal(`
+      <div class="modal-h"><h3>Add subdomains</h3><button class="icon-btn x">${svg('close', 12)}</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Hosts</label><textarea class="inp" id="s-hosts" style="min-height:160px" placeholder="www.acme.com&#10;admin.acme.com&#10;dev.acme.com"></textarea><span class="hint">One per line or comma separated.</span></div>
+      </div>
+      <div class="modal-foot"><button class="btn x">Cancel</button><button class="btn primary" id="s-save">Add hosts</button></div>`);
+    $('.modal-foot .x', m.wrap).onclick = m.close;
+    $('#s-save', m.wrap).onclick = async () => {
+      const hosts = $('#s-hosts', m.wrap).value.trim();
+      if (!hosts) return toast('Enter at least one host', 'err');
+      try { const r = await POST('/api/assets/' + assetId + '/subdomains', { hosts }); m.close(); toast('Added ' + r.added + ' subdomains'); route(); }
+      catch (e) { toast(e.message, 'err'); }
+    };
+  }
+
+  async function newFindingModal(prefill, isEdit, onCreated) {
+    prefill = prefill || {};
+    await ensurePrograms();
+    const pid = prefill.program_id || S.currentProgram || (S.programs[0] && S.programs[0].id);
+    if (!S.programs.length) { toast('Create a program first', 'info'); return newProgramModal(); }
+    // load assets/subdomains for the chosen program to populate selects
+    let detail = null;
+    try { detail = pid ? await GET('/api/programs/' + pid) : null; } catch (e) {}
+    const progOpts = S.programs.map((p) => `<option value="${p.id}" ${p.id === pid ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+    const assetOpts = (detail ? detail.assets : []).map((a) => `<option value="${a.id}" ${prefill.asset_id === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
+    const subOpts = (detail ? detail.subdomains : []).map((s) => `<option value="${s.id}" ${prefill.subdomain_id === s.id ? 'selected' : ''}>${esc(s.host)}</option>`).join('');
+
+    const m = modal(`
+      <div class="modal-h"><h3>${isEdit ? 'Edit finding' : 'Log finding'}</h3><button class="icon-btn x">${svg('close', 12)}</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Title</label><input class="inp" id="f-title" value="${attr(prefill.title || '')}" placeholder="IDOR on /orders/{id} exposes PII" /></div>
+        <div class="grid-fields">
+          <div class="field"><label>Program</label><select class="inp" id="f-prog" ${isEdit ? 'disabled' : ''}>${progOpts}</select></div>
+          <div class="field"><label>Vuln class</label><input class="inp" id="f-class" value="${attr(prefill.vuln_class || '')}" placeholder="IDOR/BOLA" /></div>
+        </div>
+        <div class="grid-fields">
+          <div class="field"><label>Asset</label><select class="inp" id="f-asset"><option value="">—</option>${assetOpts}</select></div>
+          <div class="field"><label>Subdomain</label><select class="inp" id="f-sub"><option value="">—</option>${subOpts}</select></div>
+        </div>
+        <div class="grid-fields">
+          <div class="field"><label>Severity</label><select class="inp" id="f-sev">${SEV_ORDER.map((s) => `<option ${prefill.severity === s ? 'selected' : s === 'Medium' && !prefill.severity ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+          <div class="field"><label>Status</label><select class="inp" id="f-status">${FINDING_STATUSES.concat(['Rejected', 'Duplicate']).map((s) => `<option ${prefill.status === s ? 'selected' : s === 'Potential' && !prefill.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+        </div>
+        <div class="grid-fields">
+          <div class="field"><label>CVSS</label><input class="inp" id="f-cvss" type="number" step="0.1" min="0" max="10" value="${prefill.cvss != null ? prefill.cvss : ''}" placeholder="8.1" /></div>
+          <div class="field"><label>CWE</label><input class="inp" id="f-cwe" value="${attr(prefill.cwe || '')}" placeholder="CWE-639" /></div>
+        </div>
+        <div class="field"><label>Bounty</label><input class="inp" id="f-bounty" type="number" min="0" value="${prefill.bounty || 0}" /></div>
+        <div class="field"><label>Observation</label><textarea class="inp" id="f-obs" placeholder="What you observed, with two accounts / a diff / a request…">${esc(prefill.observation || '')}</textarea></div>
+      </div>
+      <div class="modal-foot"><button class="btn x">Cancel</button><button class="btn primary" id="f-save">${isEdit ? 'Save changes' : 'Log finding'}</button></div>`);
+    $('.modal-foot .x', m.wrap).onclick = m.close;
+
+    // reload asset/sub selects when program changes
+    const progSel = $('#f-prog', m.wrap);
+    if (progSel && !isEdit) progSel.onchange = async () => {
+      try {
+        const dd = await GET('/api/programs/' + progSel.value);
+        $('#f-asset', m.wrap).innerHTML = '<option value="">—</option>' + dd.assets.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+        $('#f-sub', m.wrap).innerHTML = '<option value="">—</option>' + dd.subdomains.map((s) => `<option value="${s.id}">${esc(s.host)}</option>`).join('');
+      } catch (e) {}
+    };
+
+    $('#f-save', m.wrap).onclick = async () => {
+      const title = $('#f-title', m.wrap).value.trim();
+      if (!title) return toast('Title is required', 'err');
+      const payload = {
+        title, vuln_class: $('#f-class', m.wrap).value || null,
+        asset_id: $('#f-asset', m.wrap).value || null, subdomain_id: $('#f-sub', m.wrap).value || null,
+        severity: $('#f-sev', m.wrap).value, status: $('#f-status', m.wrap).value,
+        cvss: parseFloat($('#f-cvss', m.wrap).value) || null, cwe: $('#f-cwe', m.wrap).value || null,
+        bounty: parseFloat($('#f-bounty', m.wrap).value) || 0, observation: $('#f-obs', m.wrap).value || null,
+      };
+      try {
+        if (isEdit) { await PATCH('/api/findings/' + prefill.id, payload); toast('Finding updated'); }
+        else { payload.program_id = progSel.value; const r = await POST('/api/findings', payload); toast('Finding logged'); m.close(); if (onCreated) { onCreated(r.id); } else { go('#/findings?open=' + r.id); } return; }
+        m.close(); route();
+      } catch (e) { toast(e.message, 'err'); }
+    };
+  }
+
+  // ============================================================================
+  //  Keyboard shortcuts
+  // ============================================================================
+  let gPending = false, gTimer = null;
+  function keydown(e) {
+    const tag = (e.target.tagName || '').toLowerCase();
+    const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!$('.cmdk-scrim')) openCmdk(); return; }
+    if (e.key === 'Escape') { const cd = $('[data-cd]'); if (cd) return; const m = $('#overlay .modal'); if (m) { m.remove(); return; } if ($('.cmdk-scrim')) { closeCmdk(); return; } if (S.route && S.route.name === 'program') { go('#/programs'); return; } }
+    if (typing) return;
+
+    if (gPending) {
+      gPending = false; clearTimeout(gTimer);
+      const map = { d: '#/dashboard', p: '#/programs', a: '#/assets', c: '#/checklist', f: '#/findings', r: '#/reports', n: '#/analytics' };
+      if (map[e.key.toLowerCase()]) { e.preventDefault(); go(map[e.key.toLowerCase()]); return; }
+    }
+    if (e.key === '?') { e.preventDefault(); helpModal(); return; }
+    if ((e.key === 'r' || e.key === 'R') && nPending) { nPending = false; e.preventDefault(); createBlankReport(); return; }
+    if (e.key === 'g' || e.key === 'G') { gPending = true; clearTimeout(gTimer); gTimer = setTimeout(() => gPending = false, 800); return; }
+    if (e.key === 'n' || e.key === 'N') { nPending = true; clearTimeout(nTimer); nTimer = setTimeout(() => nPending = false, 700); return; }
+  }
+  let nPending = false, nTimer = null;
+
+  function helpModal() {
+    modal(`
+      <div class="modal-h"><h3>Keyboard map</h3><button class="icon-btn x">${svg('close', 12)}</button></div>
+      <div class="modal-body">
+        <div class="rail-metrics">
+          ${[['Ctrl K', 'Command palette'], ['G then D/P/R', 'Jump to a section'], ['N R', 'New report'], ['Esc', 'Close overlay'], ['?', 'This map']]
+        .map(([k, v]) => `<div class="m"><span class="v"><span class="kbd">${k}</span></span><span class="k">${v}</span></div>`).join('')}
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn primary x">Got it</button></div>`);
+    $$('#overlay .modal .x').forEach((b) => b.onclick = () => $('#overlay .modal').remove());
+  }
+
+  // ── boot ────────────────────────────────────────────────────────────────
+  window.addEventListener('hashchange', route);
+  document.addEventListener('keydown', keydown);
+  // upgrade every native <select> to the themed dropdown as views/modals render,
+  // and close any open menu on an outside click
+  document.addEventListener('click', closeAllSels);
+  window.addEventListener('scroll', closeAllSels, true);
+  window.addEventListener('resize', closeAllSels);
+  new MutationObserver(runEnhance).observe(document.documentElement, { childList: true, subtree: true });
+  (async function boot() {
+    if (!location.hash) location.hash = '#/dashboard';
+    try { await ensurePrograms(); } catch (e) {}
+    route();
+    runEnhance();
+  })();
+})();

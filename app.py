@@ -11,10 +11,36 @@ from datetime import datetime, timezone, timedelta
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(ROOT, "web")
 DATA_DIR = os.path.join(ROOT, "data")
-DB_PATH = os.path.join(DATA_DIR, "bugbounty.db")
+# DB_PATH / SEED_MARKER are env-overridable so E2E tests can run against an isolated,
+# throwaway database without touching the user's real data/bugbounty.db.
+DB_PATH = os.environ.get("DB_PATH") or os.path.join(DATA_DIR, "bugbounty.db")
+SEED_MARKER = os.environ.get("SEED_MARKER") or os.path.join(DATA_DIR, ".seeded")  # once present, demo data is never re-seeded
 PORT = int(os.environ.get("PORT", "8787"))
 
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# ─── report attachments (strict, security-hardened) ──────────────────────────
+MAX_UPLOAD = 1024 * 1024 * 1024  # 1 GB hard cap
+
+# Only these four types are ever accepted or served. Each entry pairs the stored
+# extension with its served Content-Type and a magic-byte sniffer: a file is
+# accepted only when its REAL leading bytes match, so a script/HTML renamed to
+# .jpg can never be stored — and the stored extension is derived from the sniffed
+# type, never from the user's filename.
+def _sig_png(b): return b[:8] == b"\x89PNG\r\n\x1a\n"
+def _sig_jpg(b): return b[:3] == b"\xff\xd8\xff"
+def _sig_mp4(b): return len(b) >= 12 and b[4:8] == b"ftyp"
+def _sig_mkv(b): return b[:4] == b"\x1a\x45\xdf\xa3"  # EBML header (Matroska)
+
+UPLOAD_TYPES = {
+    "png": ("image/png",        _sig_png),
+    "jpg": ("image/jpeg",       _sig_jpg),
+    "mp4": ("video/mp4",        _sig_mp4),
+    "mkv": ("video/x-matroska", _sig_mkv),
+}
 
 
 # ─── db ────────────────────────────────────────────────────────────────────
@@ -59,6 +85,8 @@ CREATE TABLE IF NOT EXISTS findings (
 CREATE TABLE IF NOT EXISTS reports (
   id TEXT PRIMARY KEY, finding_id TEXT REFERENCES findings(id) ON DELETE SET NULL,
   program_id TEXT REFERENCES programs(id) ON DELETE SET NULL,
+  asset_id TEXT REFERENCES assets(id) ON DELETE SET NULL,
+  subdomain_id TEXT REFERENCES subdomains(id) ON DELETE SET NULL,
   title TEXT NOT NULL, body TEXT DEFAULT '', status TEXT DEFAULT 'Draft', folder TEXT DEFAULT 'Drafts',
   severity TEXT, cvss REAL, cwe TEXT, bounty REAL DEFAULT 0, is_favorite INTEGER DEFAULT 0,
   submission_platform TEXT, word_count INTEGER DEFAULT 0,
@@ -73,6 +101,9 @@ CREATE TABLE IF NOT EXISTS activity (
 CREATE TABLE IF NOT EXISTS timeline (
   id TEXT PRIMARY KEY, program_id TEXT REFERENCES programs(id) ON DELETE CASCADE,
   title TEXT NOT NULL, detail TEXT, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS journal (
+  id TEXT PRIMARY KEY, date TEXT, programs_worked TEXT, hours REAL, tested TEXT,
+  found TEXT, interesting TEXT, tomorrow TEXT, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS i_asset_prog ON assets(program_id);
 CREATE INDEX IF NOT EXISTS i_sub_prog ON subdomains(program_id);
 CREATE INDEX IF NOT EXISTS i_find_prog ON findings(program_id);
@@ -83,6 +114,11 @@ CREATE INDEX IF NOT EXISTS i_rep_prog ON reports(program_id);
 def migrate():
     con = db()
     con.executescript(SCHEMA)
+    # Additive column migrations for databases created by an older schema.
+    for table, col, decl in [("reports", "asset_id", "TEXT"), ("reports", "subdomain_id", "TEXT")]:
+        cols = [r["name"] for r in con.execute(f"PRAGMA table_info({table})").fetchall()]
+        if col not in cols:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     con.commit()
     con.close()
 
@@ -103,7 +139,13 @@ def days_ago(n):
 
 def seed():
     con = db()
-    if con.execute("SELECT COUNT(*) c FROM programs").fetchone()["c"] > 0:
+    # Only seed a brand-new database. Once seeded (or once any data exists), drop a
+    # marker so an intentionally emptied database is never re-populated with demo data.
+    if os.path.exists(SEED_MARKER) or con.execute("SELECT COUNT(*) c FROM programs").fetchone()["c"] > 0:
+        try:
+            open(SEED_MARKER, "a").close()
+        except Exception:
+            pass
         con.close(); return
     P = [
         ("Acme Cloud", "Acme Inc.", "HackerOne", "PUBLIC", 0, 1, None, "*.acme.com, api.acme.com",
@@ -177,6 +219,10 @@ def seed():
         "API authorization on /api/v2", "Potential SSRF via webhook", "GraphQL introspection enabled",
         "Test admin reports endpoint", now()))
     con.commit(); con.close()
+    try:
+        open(SEED_MARKER, "w").close()
+    except Exception:
+        pass
 
 
 # ─── helpers ───────────────────────────────────────────────────────────────
@@ -191,6 +237,16 @@ def one(cur):
 
 def word_count(s):
     return len(s.split()) if s and s.strip() else 0
+
+
+CHK_ITEMS = 76  # items in the pentest checklist (web/checklist.js); progress is measured against this
+
+
+def checklist_pct(con, pid, scope_count):
+    """Program 'progress' = how much of the testing checklist is done across its scopes."""
+    checked = con.execute("SELECT COUNT(*) c FROM checklist_progress WHERE program_id=? AND checked=1", (pid,)).fetchone()["c"]
+    denom = max(1, scope_count) * CHK_ITEMS
+    return min(100, round(checked / denom * 100)) if denom else 0
 
 
 def clean_host(h):
@@ -275,29 +331,30 @@ def overview(h, m):
     con = db()
     c = lambda q, *a: con.execute(q, a).fetchone()["c"]
     s = lambda q, *a: con.execute(q, a).fetchone()["s"] or 0
+    # In this app a finding IS a report — all bounty/severity/status live on reports.
     kpis = {
-        "total_bounty": s("SELECT COALESCE(SUM(bounty),0) s FROM findings"),
-        "findings": c("SELECT COUNT(*) c FROM findings"),
-        "confirmed": c("SELECT COUNT(*) c FROM findings WHERE status NOT IN ('Potential','Rejected','Duplicate')"),
+        "total_bounty": s("SELECT COALESCE(SUM(bounty),0) s FROM reports"),
+        "findings": c("SELECT COUNT(*) c FROM reports"),
+        "confirmed": c("SELECT COUNT(*) c FROM reports WHERE status IN ('Submitted','Triaged','Accepted','Resolved')"),
         "programs": c("SELECT COUNT(*) c FROM programs WHERE status='Active'"),
         "private": c("SELECT COUNT(*) c FROM programs WHERE is_private=1"),
         "reports": c("SELECT COUNT(*) c FROM reports"),
-        "submitted": c("SELECT COUNT(*) c FROM reports WHERE submitted_at IS NOT NULL"),
+        "submitted": c("SELECT COUNT(*) c FROM reports WHERE status NOT IN ('Draft')"),
         "assets": c("SELECT COUNT(*) c FROM assets"),
     }
-    trend = rows(con.execute("""SELECT substr(discovered_at,1,7) month, SUM(bounty) bounty FROM findings
-        WHERE bounty>0 GROUP BY month ORDER BY month"""))
-    by_sev = rows(con.execute("SELECT severity name, COUNT(*) value FROM findings GROUP BY severity"))
-    recent = rows(con.execute("""SELECT f.*, p.name program_name FROM findings f JOIN programs p ON p.id=f.program_id
-        ORDER BY f.created_at DESC LIMIT 6"""))
+    trend = rows(con.execute("""SELECT substr(COALESCE(submitted_at,updated_at,created_at),1,7) month, SUM(bounty) bounty
+        FROM reports WHERE bounty>0 GROUP BY month ORDER BY month"""))
+    by_sev = rows(con.execute("SELECT COALESCE(severity,'Info') name, COUNT(*) value FROM reports GROUP BY name"))
+    recent = rows(con.execute("""SELECT r.id, r.title, r.severity, r.status, r.created_at, p.name program_name
+        FROM reports r LEFT JOIN programs p ON p.id=r.program_id ORDER BY r.updated_at DESC LIMIT 6"""))
     activity = rows(con.execute("SELECT * FROM activity ORDER BY at DESC LIMIT 8"))
     nxt = []
     def add(n, label, to):
         if n: nxt.append({"count": n, "label": label, "to": to})
-    add(c("SELECT COUNT(*) c FROM findings WHERE status='Potential'"), "potential findings to validate", "#/findings?status=Potential")
-    add(c("SELECT COUNT(*) c FROM reports WHERE status IN ('Draft','In Progress')"), "reports unfinished", "#/reports?folder=Drafts")
-    add(c("SELECT COUNT(*) c FROM reports WHERE status='Submitted'"), "reports awaiting response", "#/reports?status=Submitted")
-    add(c("SELECT COUNT(*) c FROM programs WHERE invitation_status='Pending'"), "private invitations to review", "#/programs?private=1")
+    add(c("SELECT COUNT(*) c FROM reports WHERE status='Draft'"), "reports still in draft", "#/reports?folder=Drafts")
+    add(c("SELECT COUNT(*) c FROM reports WHERE status='Submitted'"), "reports awaiting response", "#/reports?folder=Submitted")
+    add(c("SELECT COUNT(*) c FROM reports WHERE status='Accepted'"), "reports accepted (add the bounty)", "#/reports?folder=Accepted")
+    add(c("SELECT COUNT(*) c FROM programs WHERE is_watched=1"), "watched programs", "#/programs?watched=1")
     con.close()
     return {"kpis": kpis, "trend": trend, "by_severity": by_sev, "recent": recent, "activity": activity, "next": nxt}
 
@@ -313,8 +370,10 @@ def list_programs(h, m):
     res = rows(con.execute(sql, args))
     for r in res:
         r["asset_count"] = con.execute("SELECT COUNT(*) c FROM assets WHERE program_id=?", (r["id"],)).fetchone()["c"]
-        r["finding_count"] = con.execute("SELECT COUNT(*) c FROM findings WHERE program_id=?", (r["id"],)).fetchone()["c"]
+        sub = con.execute("SELECT COUNT(*) c FROM subdomains WHERE program_id=?", (r["id"],)).fetchone()["c"]
         r["report_count"] = con.execute("SELECT COUNT(*) c FROM reports WHERE program_id=?", (r["id"],)).fetchone()["c"]
+        r["finding_count"] = r["report_count"]  # a finding IS a report
+        r["checklist_pct"] = checklist_pct(con, r["id"], r["asset_count"] + sub)
     con.close(); return res
 
 
@@ -323,6 +382,9 @@ def get_program(h, m):
     con = db(); pid = m["id"]
     p = one(con.execute("SELECT * FROM programs WHERE id=?", (pid,)))
     if not p: con.close(); return {"error": "not found"}
+    _asset_n = con.execute("SELECT COUNT(*) c FROM assets WHERE program_id=?", (pid,)).fetchone()["c"]
+    _sub_n = con.execute("SELECT COUNT(*) c FROM subdomains WHERE program_id=?", (pid,)).fetchone()["c"]
+    p["checklist_pct"] = checklist_pct(con, pid, _asset_n + _sub_n)
     out = {
         "program": p,
         "assets": rows(con.execute("SELECT * FROM assets WHERE program_id=? ORDER BY created_at", (pid,))),
@@ -500,10 +562,15 @@ def del_finding(h, m):
 @R("GET", "/api/reports")
 def list_reports(h, m):
     con = db(); q = h.query
-    sql = """SELECT r.*, p.name program_name, p.is_private FROM reports r LEFT JOIN programs p ON p.id=r.program_id WHERE 1=1"""
+    sql = """SELECT r.*, p.name program_name, p.is_private, a.name asset_name, sd.host subdomain_host
+             FROM reports r LEFT JOIN programs p ON p.id=r.program_id
+             LEFT JOIN assets a ON a.id=r.asset_id LEFT JOIN subdomains sd ON sd.id=r.subdomain_id WHERE 1=1"""
     args = []
     if q.get("status"): sql += " AND r.status=?"; args.append(q["status"][0])
     if q.get("folder"): sql += " AND r.folder=?"; args.append(q["folder"][0])
+    if q.get("program_id"): sql += " AND r.program_id=?"; args.append(q["program_id"][0])
+    if q.get("asset_id"): sql += " AND r.asset_id=?"; args.append(q["asset_id"][0])
+    if q.get("subdomain_id"): sql += " AND r.subdomain_id=?"; args.append(q["subdomain_id"][0])
     if q.get("favorite") == ["1"]: sql += " AND r.is_favorite=1"
     if q.get("search"):
         sql += " AND (r.title LIKE ? OR r.body LIKE ?)"; args += ["%" + q["search"][0] + "%"] * 2
@@ -513,15 +580,20 @@ def list_reports(h, m):
 
 @R("GET", "/api/reports/:id")
 def get_report(h, m):
-    con = db(); r = one(con.execute("SELECT * FROM reports WHERE id=?", (m["id"],))); con.close(); return {"report": r}
+    con = db()
+    r = one(con.execute("""SELECT r.*, p.name program_name, a.name asset_name, sd.host subdomain_host
+        FROM reports r LEFT JOIN programs p ON p.id=r.program_id
+        LEFT JOIN assets a ON a.id=r.asset_id LEFT JOIN subdomains sd ON sd.id=r.subdomain_id WHERE r.id=?""", (m["id"],)))
+    con.close(); return {"report": r}
 
 
 @R("POST", "/api/reports")
 def create_report(h, m):
     b = h.body; con = db(); rid = nid(); body = b.get("body", "")
-    con.execute("""INSERT INTO reports (id,finding_id,program_id,title,body,status,folder,severity,cvss,cwe,bounty,
-        submission_platform,word_count,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (rid, b.get("finding_id"), b.get("program_id"), b.get("title", "Untitled report"), body,
+    con.execute("""INSERT INTO reports (id,finding_id,program_id,asset_id,subdomain_id,title,body,status,folder,severity,cvss,cwe,bounty,
+        submission_platform,word_count,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (rid, b.get("finding_id"), b.get("program_id"), b.get("asset_id"), b.get("subdomain_id"),
+         b.get("title", "Untitled report"), body,
          b.get("status", "Draft"), b.get("folder", "Drafts"), b.get("severity"), b.get("cvss"), b.get("cwe"),
          b.get("bounty", 0), b.get("submission_platform"), word_count(body), now(), now()))
     log(con, "report", f"Created report {b.get('title','Untitled')}", "report", rid)
@@ -531,7 +603,7 @@ def create_report(h, m):
 @R("PATCH", "/api/reports/:id")
 def patch_report(h, m):
     b = h.body; con = db(); sets, args = [], []
-    for c in ["title", "status", "folder", "is_favorite", "submission_platform", "severity", "cvss", "cwe", "bounty", "finding_id", "program_id"]:
+    for c in ["title", "status", "folder", "is_favorite", "submission_platform", "severity", "cvss", "cwe", "bounty", "finding_id", "program_id", "asset_id", "subdomain_id"]:
         if c in b: sets.append(f"{c}=?"); args.append(int(b[c]) if isinstance(b[c], bool) else b[c])
     if "body" in b:
         sets.append("body=?"); args.append(b["body"]); sets.append("word_count=?"); args.append(word_count(b["body"]))
@@ -588,22 +660,29 @@ def analytics(h, m):
     con = db(); q = h.query; where = ""; args = []
     if q.get("program_id"):
         where = " AND program_id=?"; args = [q["program_id"][0]]
-    bounty = rows(con.execute(f"SELECT substr(discovered_at,1,7) month, SUM(bounty) bounty, COUNT(*) findings FROM findings WHERE bounty>0{where} GROUP BY month ORDER BY month", args))
-    by_sev = rows(con.execute(f"SELECT severity name, COUNT(*) value FROM findings WHERE 1=1{where} GROUP BY severity", args))
-    by_class = rows(con.execute(f"SELECT vuln_class name, COUNT(*) value FROM findings WHERE vuln_class IS NOT NULL{where} GROUP BY vuln_class ORDER BY value DESC", args))
+    # Report-centric analytics (a finding IS a report).
+    bounty = rows(con.execute(f"""SELECT substr(COALESCE(submitted_at,updated_at,created_at),1,7) month, SUM(bounty) bounty, COUNT(*) findings
+        FROM reports WHERE bounty>0{where} GROUP BY month ORDER BY month""", args))
+    by_sev = rows(con.execute(f"SELECT COALESCE(severity,'Info') name, COUNT(*) value FROM reports WHERE 1=1{where} GROUP BY name", args))
+    by_class = rows(con.execute(f"SELECT COALESCE(severity,'Info') name, COUNT(*) value FROM reports WHERE 1=1{where} GROUP BY name ORDER BY value DESC", args))
     reports_time = rows(con.execute("SELECT substr(created_at,1,7) month, status, COUNT(*) c FROM reports GROUP BY month,status ORDER BY month"))
-    by_program = rows(con.execute("SELECT p.name name, COUNT(f.id) findings, COALESCE(SUM(f.bounty),0) total FROM findings f JOIN programs p ON p.id=f.program_id GROUP BY p.id ORDER BY total DESC"))
+    by_program = rows(con.execute("SELECT p.name name, COUNT(r.id) findings, COALESCE(SUM(r.bounty),0) total FROM reports r JOIN programs p ON p.id=r.program_id GROUP BY p.id ORDER BY total DESC"))
     def gte(states):
         ph = ",".join("?" * len(states))
-        return con.execute(f"SELECT COUNT(*) c FROM findings WHERE status IN ({ph}){where}", states + args).fetchone()["c"]
+        return con.execute(f"SELECT COUNT(*) c FROM reports WHERE status IN ({ph}){where}", states + args).fetchone()["c"]
     funnel = [{"name": n, "value": gte(s)} for n, s in [
-        ("Potential", ["Potential", "Confirmed", "Submitted", "Triaged", "Accepted", "Resolved"]),
-        ("Confirmed", ["Confirmed", "Submitted", "Triaged", "Accepted", "Resolved"]),
+        ("Draft", ["Draft", "Submitted", "Triaged", "Accepted", "Resolved"]),
         ("Submitted", ["Submitted", "Triaged", "Accepted", "Resolved"]),
+        ("Triaged", ["Triaged", "Accepted", "Resolved"]),
         ("Accepted", ["Accepted", "Resolved"]), ("Resolved", ["Resolved"])]]
     con.close()
     return {"bounty": bounty, "by_severity": by_sev, "by_class": by_class, "reports_time": reports_time,
             "by_program": by_program, "funnel": funnel}
+
+
+# NOTE: POST /api/upload is handled directly on the Handler (see _handle_upload)
+# so the 1 GB file body is STREAMED to disk instead of being buffered/base64-decoded
+# in memory. It is intercepted in _dispatch before the generic JSON body reader.
 
 
 @R("GET", "/api/search")
@@ -619,7 +698,10 @@ def search(h, m):
 
 # ─── http handler ──────────────────────────────────────────────────────────
 MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml",
-        ".json": "application/json", ".ico": "image/x-icon", ".woff2": "font/woff2"}
+        ".json": "application/json", ".ico": "image/x-icon", ".woff2": "font/woff2",
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+        ".webp": "image/webp", ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+        ".m4v": "video/x-m4v", ".ogg": "video/ogg", ".mkv": "video/x-matroska"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -646,12 +728,130 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return {}
 
+    def _drain(self, remaining):
+        # discard the rest of a rejected request body so the socket stays sane
+        while remaining > 0:
+            chunk = self.rfile.read(min(1 << 20, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+
+    def _handle_upload(self):
+        # streaming, magic-byte-validated upload of a report attachment.
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError):
+            return self._json({"error": "Bad request"}, 400)
+        if length <= 0:
+            return self._json({"error": "No file data"}, 400)
+        if length > MAX_UPLOAD:
+            return self._json({"error": "File too large (max 1 GB)"}, 413)
+
+        CHUNK = 1 << 20  # 1 MiB
+        remaining = length
+        # read a leading chunk and sniff the REAL type from its magic bytes
+        head = self.rfile.read(min(CHUNK, remaining))
+        remaining -= len(head)
+        ext = None
+        for e, (_mime, sniff) in UPLOAD_TYPES.items():
+            try:
+                if sniff(head):
+                    ext = e
+                    break
+            except Exception:
+                pass
+        if not ext:
+            self._drain(remaining)
+            return self._json({"error": "Only PNG, JPG, MP4 or MKV files are allowed"}, 415)
+
+        fname = nid() + "." + ext           # stored name is server-generated: no user input in the path
+        dest = os.path.join(UPLOAD_DIR, fname)
+        tmp = dest + ".part"
+        written = 0
+        try:
+            with open(tmp, "wb") as f:
+                f.write(head)
+                written += len(head)
+                while remaining > 0:
+                    chunk = self.rfile.read(min(CHUNK, remaining))
+                    if not chunk:
+                        break
+                    written += len(chunk)
+                    if written > MAX_UPLOAD:      # defence-in-depth vs. a lying Content-Length
+                        raise BadRequest("File too large (max 1 GB)")
+                    f.write(chunk)
+                    remaining -= len(chunk)
+            os.replace(tmp, dest)
+        except BadRequest as e:
+            try: os.remove(tmp)
+            except OSError: pass
+            return self._json({"error": str(e)}, 413)
+        except Exception as e:
+            try: os.remove(tmp)
+            except OSError: pass
+            return self._json({"error": str(e) or "Upload failed"}, 500)
+        return self._json({"url": "/uploads/" + fname, "type": UPLOAD_TYPES[ext][0]})
+
+    def _serve_file(self, fp, ctype):
+        # stream a (possibly large) file with HTTP Range support + hardened headers
+        size = os.path.getsize(fp)
+        start, end, status = 0, size - 1, 200
+        rng = self.headers.get("Range")
+        if rng and rng.strip().startswith("bytes="):
+            try:
+                spec = rng.split("=", 1)[1].split(",")[0].strip()
+                a, _, b = spec.partition("-")
+                if a == "":
+                    start = max(0, size - int(b))
+                else:
+                    start = int(a)
+                    end = int(b) if b else size - 1
+                if start > end or start >= size:
+                    self.send_response(416)
+                    self.send_header("Content-Range", "bytes */%d" % size)
+                    self.end_headers()
+                    return
+                end = min(end, size - 1)
+                status = 206
+            except Exception:
+                start, end, status = 0, size - 1, 200
+        length = end - start + 1
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(length))
+        self.send_header("Accept-Ranges", "bytes")
+        if status == 206:
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+        # security: don't sniff, don't execute, sandbox — served media can only be media
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "default-src 'none'; img-src 'self'; media-src 'self'; sandbox")
+        self.send_header("Content-Disposition", "inline")
+        self.send_header("Cache-Control", "private, max-age=31536000")
+        self.end_headers()
+        if getattr(self, "command", "GET") == "HEAD":
+            return
+        left = length
+        with open(fp, "rb") as f:
+            f.seek(start)
+            while left > 0:
+                data = f.read(min(256 * 1024, left))
+                if not data:
+                    break
+                try:
+                    self.wfile.write(data)
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+                left -= len(data)
+
     def _dispatch(self, method):
         from urllib.parse import urlparse, parse_qs
         u = urlparse(self.path)
         path = u.path
         if path.startswith("/api/"):
             self.query = parse_qs(u.query)
+            # Uploads are streamed to disk — never buffered as a JSON body.
+            if path == "/api/upload" and method == "POST":
+                return self._handle_upload()
             self.body = self._read_body() if method in ("POST", "PATCH", "PUT", "DELETE") else {}
             for mth, rx, fn in API.routes:
                 if mth != method:
@@ -674,6 +874,17 @@ class Handler(BaseHTTPRequestHandler):
     def _static(self, path):
         if path == "/" or path == "":
             path = "/index.html"
+        # user-uploaded media (report attachments) served from data/uploads
+        if path.startswith("/uploads/"):
+            up = os.path.normpath(os.path.join(UPLOAD_DIR, path[len("/uploads/"):]))
+            # must stay strictly inside UPLOAD_DIR (no path traversal)
+            if up != UPLOAD_DIR and not up.startswith(UPLOAD_DIR + os.sep):
+                self.send_error(403); return
+            ext = os.path.splitext(up)[1].lower().lstrip(".")
+            # only the four allowed media types are ever served back
+            if ext not in UPLOAD_TYPES or not os.path.isfile(up):
+                self.send_error(404); return
+            return self._serve_file(up, UPLOAD_TYPES[ext][0])
         # SPA: unknown non-file routes -> index.html
         fp = os.path.normpath(os.path.join(WEB, path.lstrip("/")))
         if not fp.startswith(WEB):
@@ -689,6 +900,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", MIME.get(ext, "application/octet-stream"))
         self.send_header("Content-Length", str(len(data)))
+        # Never let the browser run a stale app.js/styles.css after an update.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
         self.end_headers()
         self.wfile.write(data)
 
@@ -701,7 +915,11 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     migrate(); seed()
-    httpd = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    # bind to loopback only — this is a single-user local tool holding sensitive
+    # scope/finding/PoC data and has no auth, so it must NOT be exposed to the LAN.
+    # Override with HOST=0.0.0.0 only if you deliberately want network access.
+    host = os.environ.get("HOST", "127.0.0.1")
+    httpd = ThreadingHTTPServer((host, PORT), Handler)
     print(f"\n  ●  Bug Bounty OS  →  http://localhost:{PORT}\n")
     try:
         httpd.serve_forever()
